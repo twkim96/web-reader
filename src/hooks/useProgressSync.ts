@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 import { APP_ID, auth, db } from '../lib/firebase';
 import { ownerRuntime } from '../lib/ownerRuntime';
+import { useOwnerSnapshot } from './useOwnerSnapshot';
 import { RemoteProgressUpdate, UserProgress } from '../types';
 import { getSyncOwnerKey, splitOwnerKey } from '../lib/ownerIdentity';
 import {
@@ -77,6 +78,7 @@ export const useProgressSync = ({
   activeBookId,
   ownerKey,
 }: UseProgressSyncOptions) => {
+  const owner = useOwnerSnapshot();
   const progressRecoveryRef = useRef<SnapshotListenerRecovery<FirestoreQuerySnapshot> | null>(null);
   const bookmarkRecoveryRef = useRef<SnapshotListenerRecovery<FirestoreQuerySnapshot> | null>(null);
   const [progressReceiveHealth, setProgressReceiveHealth] = useState<SyncHealth>('healthy');
@@ -84,8 +86,7 @@ export const useProgressSync = ({
 
   useEffect(() => {
     if (!user) return;
-    const owner = ownerRuntime.capture();
-    if (!owner) return;
+    if (!owner || owner.ownerKey !== ownerKey) return;
 
     const { authOwnerKey } = splitOwnerKey(owner.ownerKey);
     if (authOwnerKey !== `firebase:${user.uid}`) return;
@@ -187,12 +188,11 @@ export const useProgressSync = ({
       unregister();
       dispose();
     };
-  }, [deviceId, ownerKey, progressRef, setRemoteProgress, user]);
+  }, [deviceId, owner, ownerKey, progressRef, setRemoteProgress, user]);
 
   useEffect(() => {
     if (!user || !activeBookId) return;
-    const owner = ownerRuntime.capture();
-    if (!owner) return;
+    if (!owner || owner.ownerKey !== ownerKey) return;
     const { authOwnerKey } = splitOwnerKey(owner.ownerKey);
     if (authOwnerKey !== `firebase:${user.uid}`) return;
 
@@ -279,7 +279,7 @@ export const useProgressSync = ({
       unregister();
       dispose();
     };
-  }, [activeBookId, deviceId, ownerKey, progressRef, setProgress, user]);
+  }, [activeBookId, deviceId, owner, ownerKey, progressRef, setProgress, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -293,9 +293,9 @@ export const useProgressSync = ({
         traceReaderBootstrap({ event: 'listener-reconciled', listener: 'bookmark', wakeReason });
       }
     };
-    const owner = ownerRuntime.capture();
     const ownerMatchesUser = Boolean(
       owner
+      && owner.ownerKey === ownerKey
       && splitOwnerKey(owner.ownerKey).authOwnerKey === `firebase:${user.uid}`
     );
     const syncOwnerKey = owner && ownerMatchesUser ? getSyncOwnerKey(owner.ownerKey) : null;
@@ -436,7 +436,7 @@ export const useProgressSync = ({
       window.removeEventListener('online', handleOnline);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [activeBookId, ownerKey, setRemoteProgress, user]);
+  }, [activeBookId, owner, ownerKey, setRemoteProgress, user]);
 
   return mergeSyncHealth(
     user ? progressReceiveHealth : 'healthy',

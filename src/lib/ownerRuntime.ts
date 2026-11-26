@@ -11,6 +11,7 @@ export class OwnerRuntime {
   private generation = 0;
   private snapshot: OwnerSnapshot | null = null;
   private disposers = new Set<OwnerDisposer>();
+  private listeners = new Set<() => void>();
 
   activate(ownerKey: OwnerKey) {
     if (this.snapshot?.ownerKey === ownerKey) return this.snapshot;
@@ -19,17 +20,22 @@ export class OwnerRuntime {
       ownerKey,
       generation: this.generation,
     });
+    this.listeners.forEach((listener) => listener());
     return this.snapshot;
   }
 
   clear() {
     this.invalidate();
     this.snapshot = null;
+    this.listeners.forEach((listener) => listener());
   }
 
-  capture() {
-    return this.snapshot;
-  }
+  capture = () => this.snapshot;
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  };
 
   require() {
     const snapshot = this.snapshot;

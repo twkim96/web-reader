@@ -20,6 +20,7 @@ import {
 } from '../lib/localReadingStatistics';
 import { getSyncOwnerKey, splitOwnerKey, type OwnerKey } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
+import { useOwnerSnapshot } from './useOwnerSnapshot';
 import {
   getRemoteReadingSessionsPageV1,
   readReadingStatisticsClockSampleV1,
@@ -99,6 +100,7 @@ export const useReadingStatisticsSync = (
   user: FirebaseUser | null,
   ownerKey: OwnerKey | null,
 ) => {
+  const owner = useOwnerSnapshot();
   const [receiveHealth, setReceiveHealth] = useState<SyncHealth>('healthy');
   const [uploadHealth, setUploadHealth] = useState<SyncHealth>('healthy');
   const [quarantinedCount, setQuarantinedCount] = useState(0);
@@ -119,7 +121,6 @@ export const useReadingStatisticsSync = (
     setLastServerCheckedAt(null);
     refreshOwnerKeyRef.current = null;
     if (!user || !ownerKey) return;
-    const owner = ownerRuntime.capture();
     if (!owner || owner.ownerKey !== ownerKey) return;
     const { authOwnerKey } = splitOwnerKey(owner.ownerKey);
     if (authOwnerKey !== `firebase:${user.uid}`) return;
@@ -659,7 +660,7 @@ export const useReadingStatisticsSync = (
       if (uploadRetryTimer !== null) window.clearTimeout(uploadRetryTimer);
       if (leaderRetryTimer !== null) window.clearTimeout(leaderRetryTimer);
     };
-  }, [ownerKey, user]);
+  }, [owner, ownerKey, user]);
 
   return {
     health: mergeSyncHealth(receiveHealth, uploadHealth),

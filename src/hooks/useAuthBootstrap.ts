@@ -1,16 +1,18 @@
-import { Dispatch, MutableRefObject, SetStateAction, useEffect, useState } from 'react';
+import { Dispatch, MutableRefObject, SetStateAction, useCallback, useEffect, useRef, useState } from 'react';
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { ViewState } from '../types';
-import type { RestoreLocalDataOptions } from './useLibraryData';
+import type { RestoreLocalDataOptions, RestoreLocalDataResult } from './useLibraryData';
 import {
   getOrCreateGuestInstallId,
+  isGuestOwner,
   makeFirebaseOwnerKey,
   makeGuestOwnerKey,
   makeOwnerKey,
   type OwnerKey,
 } from '../lib/ownerIdentity';
 import { ownerRuntime } from '../lib/ownerRuntime';
+import { useOwnerSnapshot } from './useOwnerSnapshot';
 
 interface UseAuthBootstrapOptions {
   isGuestRef: MutableRefObject<boolean>;
@@ -18,11 +20,11 @@ interface UseAuthBootstrapOptions {
   setIsGuest: Dispatch<SetStateAction<boolean>>;
   setIsOfflineMode: Dispatch<SetStateAction<boolean>>;
   setView: Dispatch<SetStateAction<ViewState>>;
-  restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<boolean>;
+  restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<RestoreLocalDataResult>;
   resetLibraryState: () => void;
   shouldHoldShelfForDrive: () => boolean;
   logoutReadingOwner?: MutableRefObject<OwnerKey | undefined>;
-  onAuthenticatedLibraryReady?: () => void;
+  onAuthenticatedLibraryRestoreSettled?: () => void;
 }
 
 export const useAuthBootstrap = ({
@@ -35,17 +37,51 @@ export const useAuthBootstrap = ({
   resetLibraryState,
   shouldHoldShelfForDrive,
   logoutReadingOwner,
-  onAuthenticatedLibraryReady,
+  onAuthenticatedLibraryRestoreSettled,
 }: UseAuthBootstrapOptions) => {
-  const [isAuthenticatedLibraryReady, setIsAuthenticatedLibraryReady] = useState(false);
-  const [isLibraryBootstrapReady, setIsLibraryBootstrapReady] = useState(false);
+  const activeOwner = useOwnerSnapshot();
+  const [readyOwnerKey, setReadyOwnerKey] = useState<OwnerKey | null>(null);
+  const isLibraryBootstrapReady = readyOwnerKey !== null && readyOwnerKey === activeOwner?.ownerKey;
+  const isAuthenticatedLibraryReady = isLibraryBootstrapReady && !isGuestOwner(readyOwnerKey);
+  const [libraryRestoreFailed, setLibraryRestoreFailed] = useState(false);
+  const retryRestore = useRef<(() => void) | null>(null);
+  const retryLibraryRestore = useCallback(() => retryRestore.current?.(), []);
 
   useEffect(() => {
     let isActive = true;
     let initialAuthSettled = false;
     let authGeneration = 0;
-    let guestRestore: Promise<boolean> | null = null;
-    setIsLibraryBootstrapReady(false);
+    let guestRestore: Promise<RestoreLocalDataResult> | null = null;
+    setReadyOwnerKey(null);
+
+    const restoreLibrary = (
+      generation: number,
+      restore: () => Promise<RestoreLocalDataResult>,
+      onReady: () => void,
+      onFailure?: () => void,
+    ) => {
+      const isCurrent = () => isActive && generation === authGeneration;
+      const start = () => {
+        if (!isCurrent()) return;
+        retryRestore.current = null;
+        setLibraryRestoreFailed(false);
+        void (async () => {
+          const result = await restore().catch((error: unknown) => {
+            console.error('[AuthBootstrap] library restore failed:', error);
+            return 'failed' as const;
+          });
+          if (!isCurrent() || result === 'stale') return;
+          if (result === 'failed') {
+            retryRestore.current = start;
+            setLibraryRestoreFailed(true);
+            onFailure?.();
+            return;
+          }
+          onReady();
+        })();
+      };
+      start();
+    };
 
     const activateGuest = (generation: number) => {
       const previousOwner = ownerRuntime.capture();
@@ -54,19 +90,19 @@ export const useAuthBootstrap = ({
         'library:local',
       ));
       if (previousOwner?.ownerKey !== nextOwner.ownerKey) resetLibraryState();
-      if (!guestRestore) {
+      const restoreGuest = () => {
+        if (guestRestore) return guestRestore;
         const retainPositionsFrom = logoutReadingOwner?.current;
         if (logoutReadingOwner) logoutReadingOwner.current = undefined;
         guestRestore = restoreLocalData({ replaceBooks: true, retainPositionsFrom });
-      }
-      void guestRestore.then(() => {
-        if (!isActive || generation !== authGeneration || !isGuestRef.current) return;
-        setIsLibraryBootstrapReady(true);
+        return guestRestore;
+      };
+      restoreLibrary(generation, restoreGuest, () => {
+        setReadyOwnerKey(nextOwner.ownerKey);
         setIsOfflineMode(true);
         setView((current) => current === 'reader' ? 'reader' : 'shelf');
-      }).catch((error) => {
-        if (!isActive || generation !== authGeneration) return;
-        console.error('[AuthBootstrap] guest restore failed:', error);
+      }, () => {
+        guestRestore = null;
       });
     };
 
@@ -92,8 +128,7 @@ export const useAuthBootstrap = ({
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
       initialAuthSettled = true;
       window.clearTimeout(authFallbackTimer);
-      setIsAuthenticatedLibraryReady(false);
-      setIsLibraryBootstrapReady(false);
+      setReadyOwnerKey(null);
       const callbackGeneration = ++authGeneration;
       const previousOwner = ownerRuntime.capture();
       if (firebaseUser) {
@@ -104,19 +139,16 @@ export const useAuthBootstrap = ({
         const nextOwner = ownerRuntime.activate(makeOwnerKey(authOwnerKey, 'library:local'));
         if (previousOwner?.ownerKey !== nextOwner.ownerKey) resetLibraryState();
 
-        void (async () => {
-          await restoreLocalData({ preventRedirect: true, replaceBooks: true });
-          if (!isActive || callbackGeneration !== authGeneration) return;
-          setIsAuthenticatedLibraryReady(true);
-          setIsLibraryBootstrapReady(true);
-          onAuthenticatedLibraryReady?.();
+        restoreLibrary(callbackGeneration, () => restoreLocalData({ preventRedirect: true, replaceBooks: true }), () => {
+          setReadyOwnerKey(nextOwner.ownerKey);
+          onAuthenticatedLibraryRestoreSettled?.();
           if (navigator.onLine !== false && shouldHoldShelfForDrive()) {
             setView('loading');
             return;
           }
           setIsOfflineMode(true);
           setView((prev) => prev === 'reader' ? 'reader' : 'shelf');
-        })();
+        }, onAuthenticatedLibraryRestoreSettled);
       } else if (isGuestRef.current) {
         setIsGuest(true);
         activateGuest(callbackGeneration);
@@ -134,6 +166,7 @@ export const useAuthBootstrap = ({
 
     return () => {
       isActive = false;
+      retryRestore.current = null;
       window.clearTimeout(authFallbackTimer);
       unsubscribeAuth();
     };
@@ -147,8 +180,8 @@ export const useAuthBootstrap = ({
     setView,
     shouldHoldShelfForDrive,
     logoutReadingOwner,
-    onAuthenticatedLibraryReady,
+    onAuthenticatedLibraryRestoreSettled,
   ]);
 
-  return { isAuthenticatedLibraryReady, isLibraryBootstrapReady };
+  return { isAuthenticatedLibraryReady, isLibraryBootstrapReady, libraryRestoreFailed, retryLibraryRestore };
 };

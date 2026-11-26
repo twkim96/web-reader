@@ -46,6 +46,8 @@ export type RestoreLocalDataOptions = {
   retainPositionsFrom?: OwnerKey;
 };
 
+export type RestoreLocalDataResult = 'restored' | 'empty' | 'failed' | 'stale';
+
 interface UseLibraryDataResult {
   books: Book[];
   setBooks: Dispatch<SetStateAction<Book[]>>;
@@ -55,7 +57,7 @@ interface UseLibraryDataResult {
   remoteProgress: Record<string, RemoteProgressUpdate>;
   setRemoteProgress: Dispatch<SetStateAction<Record<string, RemoteProgressUpdate>>>;
   driveCacheKey: string | null;
-  restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<boolean>;
+  restoreLocalData: (options?: boolean | RestoreLocalDataOptions) => Promise<RestoreLocalDataResult>;
   loadLibraryFromDrive: (token: string, driveSessionId?: string) => Promise<boolean>;
   resetLibraryState: () => void;
 }
@@ -94,11 +96,11 @@ export const useLibraryData = ({
     setRemoteProgress({});
   }, []);
 
-  const restoreLocalData = useCallback(async (options?: boolean | RestoreLocalDataOptions) => {
+  const restoreLocalData = useCallback(async (options?: boolean | RestoreLocalDataOptions): Promise<RestoreLocalDataResult> => {
     const { preventRedirect = false, replaceBooks = false, retainPositionsFrom } =
       typeof options === 'boolean' ? { preventRedirect: options } : options ?? {};
     const capturedOwner = ownerRuntime.capture();
-    if (!capturedOwner) return false;
+    if (!capturedOwner) return 'stale';
 
     try {
       const owner = capturedOwner;
@@ -118,7 +120,7 @@ export const useLibraryData = ({
         getAllOfflineBooksV5(DEVICE_CONTENT_OWNER_KEY),
         getAllLocalProgressV5(progressOwner),
       ]);
-      if (!ownerRuntime.isCurrent(owner)) return false;
+      if (!ownerRuntime.isCurrent(owner)) return 'stale';
 
       const localProgressByBook: Record<string, UserProgress> = {};
       localProgress.forEach((item) => {
@@ -134,7 +136,7 @@ export const useLibraryData = ({
       });
 
       if (replaceBooks) {
-        setBooks(localBooks);
+        setBooks((prev) => ownerRuntime.isCurrent(owner) ? localBooks : prev);
       } else if (localBooks.length > 0) {
         setBooks((prev) => {
           if (!ownerRuntime.isCurrent(owner)) return prev;
@@ -146,13 +148,13 @@ export const useLibraryData = ({
 
       if (localBooks.length > 0) {
         if (!preventRedirect) setView('shelf');
-        return true;
+        return 'restored';
       }
 
-      return false;
+      return 'empty';
     } catch (error) {
       console.error('Failed to restore local data:', error);
-      return false;
+      return ownerRuntime.isCurrent(capturedOwner) ? 'failed' : 'stale';
     }
   }, [onLibraryError, setIsOfflineMode, setView]);
 

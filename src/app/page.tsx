@@ -27,6 +27,7 @@ import { getAuthoritativeRemoteAnnotationHeadV1 } from '../lib/annotationSyncRem
 import { ANNOTATION_BOOK_DELETE_MARKER_ID } from '../lib/annotationPolicy';
 import { subscribeLocalDBLifecycle, type LocalDBLifecycleEvent } from '../lib/localDB';
 import { useAuthBootstrap } from '../hooks/useAuthBootstrap';
+import { useOwnerSnapshot } from '../hooks/useOwnerSnapshot';
 import { useDeviceId } from '../hooks/useDeviceId';
 import { useDriveOAuthRedirect } from '../hooks/useDriveOAuthRedirect';
 import { useGoogleDriveToken } from '../hooks/useGoogleDriveToken';
@@ -229,7 +230,7 @@ export default function Page() {
   };
 
   const theme = getThemeClasses(settings);
-  const activeOwnerKey = ownerRuntime.capture()?.ownerKey ?? null;
+  const activeOwnerKey = useOwnerSnapshot()?.ownerKey ?? null;
   useEffect(() => subscribeLocalDBLifecycle(setLocalDBLifecycleEvent), []);
 
   useEffect(() => {
@@ -303,6 +304,8 @@ export default function Page() {
   const {
     isAuthenticatedLibraryReady,
     isLibraryBootstrapReady,
+    libraryRestoreFailed,
+    retryLibraryRestore,
   } = useAuthBootstrap({
     isGuestRef,
     setUser,
@@ -313,10 +316,11 @@ export default function Page() {
     resetLibraryState,
     shouldHoldShelfForDrive,
     logoutReadingOwner,
-    onAuthenticatedLibraryReady: googleLogin.finish,
+    onAuthenticatedLibraryRestoreSettled: googleLogin.finish,
   });
+  const syncUser = isAuthenticatedLibraryReady ? user : null;
   const receiveSyncHealth = useProgressSync({
-    user,
+    user: syncUser,
     deviceId,
     progressRef,
     setProgress,
@@ -324,8 +328,8 @@ export default function Page() {
     activeBookId: activeBook?.id,
     ownerKey: activeOwnerKey,
   });
-  const { health: sendSyncHealth, recoveryAvailable: sendRecoveryAvailable } = useProgressSyncWorker(user, activeOwnerKey, deviceId.current);
-  const readingStatisticsSync = useReadingStatisticsSync(user, activeOwnerKey);
+  const { health: sendSyncHealth, recoveryAvailable: sendRecoveryAvailable } = useProgressSyncWorker(syncUser, activeOwnerKey, deviceId.current);
+  const readingStatisticsSync = useReadingStatisticsSync(syncUser, activeOwnerKey);
   const syncHealth = mergeSyncHealth(
     receiveSyncHealth,
     sendSyncHealth,
@@ -401,7 +405,7 @@ export default function Page() {
     }
   };
   const syncConflictResolution = useSyncConflictResolution({
-    user,
+    user: syncUser,
     progressRef,
     setProgress,
     setRemoteProgress,
@@ -412,7 +416,7 @@ export default function Page() {
     flushReaderProgress,
   });
   const annotationSyncConflictResolution = useAnnotationSyncConflictResolution({
-    user,
+    user: syncUser,
     ownerKey: activeOwnerKey,
     activeBookId: activeBook?.id,
   });
@@ -838,7 +842,7 @@ export default function Page() {
     <LoginProgressDialog finishing={googleLogin.phase === 'finishing'} onCancel={googleLogin.cancel} style={dynamicStyles} />
   );
 
-  if (view === 'loading' || (view === 'reader' && !isLibraryBootstrapReady)) {
+  if (view === 'loading' || !isLibraryBootstrapReady) {
     return (
       <div
         data-app-view={view}
@@ -849,8 +853,20 @@ export default function Page() {
           color: 'var(--viewer-theme-text, #d2d3d6)',
         }}
       >
-        <div className="w-12 h-12 border-4 border-accent-500 border-t-transparent rounded-full animate-spin" />
-        <p className="font-black uppercase tracking-widest text-xs opacity-30">Loading Library...</p>
+        {libraryRestoreFailed ? (
+          <>
+            <p role="status" className="px-4 text-center text-sm">저장된 읽기 위치를 불러오지 못했습니다.</p>
+            <button type="button" onClick={retryLibraryRestore}
+              className="min-h-11 rounded-xl border border-current/20 px-4 text-sm hover:bg-current/5 focus-visible:outline-2 focus-visible:outline-accent-500">
+              다시 시도
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="w-12 h-12 border-4 border-accent-500 border-t-transparent rounded-full animate-spin" />
+            <p className="font-black uppercase tracking-widest text-xs opacity-30">Loading Library...</p>
+          </>
+        )}
         {loginDialog}
       </div>
     );

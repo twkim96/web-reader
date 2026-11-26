@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { onIdTokenChanged, type User as FirebaseUser } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { ownerRuntime } from '../lib/ownerRuntime';
+import { useOwnerSnapshot } from './useOwnerSnapshot';
 import {
   getSyncOwnerKey,
   splitOwnerKey,
@@ -40,6 +41,7 @@ export const useProgressSyncWorker = (
   ownerKey: string | null,
   deviceId: string,
 ) => {
+  const owner = useOwnerSnapshot();
   const [state, setState] = useState<{ health: SyncHealth; recoveryAvailable: boolean }>({ health: 'healthy', recoveryAvailable: false });
 
   useEffect(() => {
@@ -47,8 +49,7 @@ export const useProgressSyncWorker = (
       setState({ health: 'healthy', recoveryAvailable: false });
       return;
     }
-    const owner = ownerRuntime.capture();
-    if (!owner) return;
+    if (!owner || owner.ownerKey !== ownerKey) return;
     const { authOwnerKey } = splitOwnerKey(owner.ownerKey);
     if (authOwnerKey !== `firebase:${user.uid}`) return;
     const syncOwnerKey = getSyncOwnerKey(owner.ownerKey);
@@ -220,7 +221,7 @@ export const useProgressSyncWorker = (
       pump.dispose();
       void worker.dispose();
     };
-  }, [deviceId, ownerKey, user]);
+  }, [deviceId, owner, ownerKey, user]);
 
   return state;
 };

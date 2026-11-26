@@ -86,7 +86,7 @@ test('cancelling a popup ignores its late account and accepts a new login indepe
   }
 });
 
-test('a new save wakes the worker without retrying a different book paused on permission-denied', { timeout: 5_000 }, async (t) => {
+test('new saves wake the worker, including after a failed logout restores the same owner', { timeout: 5_000 }, async (t) => {
   const firebasePath = require.resolve('../src/lib/firebase.ts');
   const authPath = require.resolve('firebase/auth');
   const workerPath = require.resolve('../src/hooks/useProgressSyncWorker.ts');
@@ -99,13 +99,14 @@ test('a new save wakes the worker without retrying a different book paused on pe
   const previous = paths.map(path => require.cache[path]);
   let requested;
   let leasePreparations = 0;
+  let workerSubscriptions = 0;
   const expectWake = () => new Promise(resolve => { requested = resolve; });
   t.mock.method(ProgressSyncPumpController.prototype, 'request', () => requested?.());
   const setExports = (path, exports) => {
     require.cache[path] = { id: path, filename: path, loaded: true, exports };
   };
   setExports(firebasePath, { auth: {}, db: {} });
-  setExports(authPath, { onIdTokenChanged: () => noop });
+  setExports(authPath, { onIdTokenChanged: () => { workerSubscriptions++; return noop; } });
   setExports(leaseTransportPath, {
     ...leases, finiteWriteLeasesEnabled: yes,
     prepareWriteLease: async () => { leasePreparations++; }, requestReceiptMaintenance: asyncYes,
@@ -155,6 +156,22 @@ test('a new save wakes the worker without retrying a different book paused on pe
       const events = await outbox.getOutboxEventsV5(owner);
       assert.equal(events.find(event => event.eventId === 'paused-book').status, 'paused');
       assert.equal(events.find(event => event.eventId === 'new-book').status, 'pending');
+
+      const { runLogoutFlow } = require('../src/lib/logoutFlow.ts');
+      const originalOwner = ownerRuntime.capture();
+      await React.act(async () => {
+        assert.equal(await runLogoutFlow({
+          prepareUi: () => ownerRuntime.clear(),
+          signOut: async () => { throw new Error('fixture sign-out failed'); },
+          commitLocalCleanup: () => assert.fail('logout did not complete'),
+          recoverUi: () => ownerRuntime.activate(owner),
+        }), false);
+      });
+      assert.equal(ownerRuntime.isCurrent(originalOwner), false);
+      assert.equal(workerSubscriptions, 2, 'the same owner key must start a new worker after rollback');
+      wake = expectWake();
+      await save('saved-after-logout-failure');
+      await wake;
     });
   } finally {
     ownerRuntime.clear();
@@ -227,8 +244,49 @@ test('keeping a remotely deleted bookmark updates its id before the reader can d
   } finally { ownerRuntime.clear(); }
 });
 
+test('a failed library read preserves durable progress and a genuinely empty library can still open', async (t) => {
+  const { useLibraryData } = require('../src/hooks/useLibraryData.ts');
+  const { ownerRuntime } = require('../src/lib/ownerRuntime.ts');
+  const { V5_PROGRESS_STORE } = require('../src/lib/localDBSchema.ts');
+  const { loadProgressFromLocalV5, saveProgressToLocalV5 } = require('../src/lib/localDBV5.ts');
+  const ownerKey = 'firebase:local-read-failure|library:local';
+  const bookId = 'local-read-failure-book';
+  const originalGetAll = IDBIndex.prototype.getAll;
+  let failRead = true;
+  t.mock.method(IDBIndex.prototype, 'getAll', function (query, ...args) {
+    if (failRead && query === ownerKey && this.objectStore.name === V5_PROGRESS_STORE) {
+      throw new Error('fixture progress read failed');
+    }
+    return originalGetAll.call(this, query, ...args);
+  });
+  t.mock.method(console, 'error', noop);
+  await saveProgressToLocalV5(ownerKey, { bookId, cfi: 'saved', progressPercent: 60, lastRead: 100 });
+
+  try {
+    await withDom(async root => {
+      // The lower-level restore is used by the auth hook in production. This
+      // fixture exercises real IndexedDB results without mounting Firebase.
+      let library;
+      function Harness() {
+        library = useLibraryData({ clearToken: noop, setIsOfflineMode: noop, setView: noop, driveSessionId: null });
+        return null;
+      }
+      ownerRuntime.activate(ownerKey);
+      await React.act(async () => root.render(React.createElement(Harness)));
+      await React.act(async () => assert.equal(await library.restoreLocalData(), 'failed'));
+      assert.deepEqual(library.progress, {});
+      assert.equal((await loadProgressFromLocalV5(ownerKey, bookId)).progressPercent, 60);
+      failRead = false;
+      await React.act(async () => assert.equal(await library.restoreLocalData(), 'empty'));
+      assert.equal(library.progress[bookId].progressPercent, 60);
+    });
+  } finally {
+    ownerRuntime.clear();
+  }
+});
+
 for (const offline of [false, true]) test(
-  `late cold-start authentication hydrates before opening the reader and hands off positions on logout (offline=${offline})`,
+  `account reader waits for hydration and retries failed authentication restore (offline=${offline})`,
   async () => {
   const { readFileSync } = require('node:fs');
   const page = readFileSync(require.resolve('../src/app/page.tsx'), 'utf8');
@@ -261,6 +319,8 @@ for (const offline of [false, true]) test(
       const book = { id: 'cold-start-book' };
       let resolveAccount;
       let resolveLogoutRestore;
+      let accountAttempts = 0;
+      let bootstrap;
       let driveLoads = 0;
       const loadLibraryFromDrive = async () => { driveLoads++; return true; };
       const accountHydration = new Promise(resolve => { resolveAccount = resolve; });
@@ -284,19 +344,25 @@ for (const offline of [false, true]) test(
         const triedAutoOpen = React.useRef(false);
         const resetLibraryState = React.useCallback(() => { setBooks([]); setProgress({}); }, []);
         const restoreLocalData = React.useCallback(async (options) => {
-          const account = ownerRuntime.capture().ownerKey.startsWith('firebase:');
-          if (account) await accountHydration;
+          const { ownerKey } = ownerRuntime.capture();
+          if (ownerKey === 'firebase:empty-account|library:local') return 'empty';
+          const account = ownerKey.startsWith('firebase:');
+          if (account) {
+            await accountHydration;
+            if (++accountAttempts === 1 && !offline) return 'failed';
+          }
           else {
             guestRestores.push(options?.retainPositionsFrom);
             if (options?.retainPositionsFrom) await new Promise(resolve => { resolveLogoutRestore = resolve; });
           }
           setBooks([book]);
           setProgress(account ? { [book.id]: { progressPercent: 60 } } : {});
-          return true;
+          return 'restored';
         }, []);
-        const { isLibraryBootstrapReady, isAuthenticatedLibraryReady } = useAuthBootstrap({ isGuestRef, setUser, setIsGuest,
+        bootstrap = useAuthBootstrap({ isGuestRef, setUser, setIsGuest,
           setIsOfflineMode: noop, setView, restoreLocalData, resetLibraryState, shouldHoldShelfForDrive: offline ? yes : no,
           logoutReadingOwner });
+        const { isLibraryBootstrapReady, isAuthenticatedLibraryReady } = bootstrap;
         useNetworkLibrarySync({ user, isAuthenticatedLibraryReady, googleToken: offline ? 'token' : null,
           driveSessionId: offline ? 'session' : null, loadLibraryFromDrive, setView, setIsOfflineMode: noop });
         React.useEffect(() => {
@@ -320,6 +386,15 @@ for (const offline of [false, true]) test(
         await React.act(async () => authCallback({ uid: 'cold-start-account' }));
         assert.equal(opens.length, guestOpens, 'account reader must wait for its pending hydration');
         await React.act(async () => resolveAccount());
+        if (!offline) {
+          assert.equal(bootstrap.libraryRestoreFailed, true);
+          assert.equal(bootstrap.isLibraryBootstrapReady, false);
+          assert.equal(bootstrap.isAuthenticatedLibraryReady, false);
+          assert.equal(opens.length, guestOpens, 'a failed read must never open an account reader with an empty position');
+          await React.act(async () => { bootstrap.retryLibraryRestore(); bootstrap.retryLibraryRestore(); });
+          assert.equal(accountAttempts, 2);
+          assert.equal(bootstrap.libraryRestoreFailed, false);
+        }
         assert.equal(opens.length, guestOpens + 1);
         assert.ok(opens.at(-1).ownerKey.startsWith('firebase:cold-start-account'));
         assert.equal(opens.at(-1).initialPercent, 60, 'account reader captures the durable saved position');
@@ -333,13 +408,15 @@ for (const offline of [false, true]) test(
         const accountOwner = ownerRuntime.capture().ownerKey;
         const previousGuestRestores = guestRestores.length;
         logoutReadingOwner.current = accountOwner;
-        ownerRuntime.clear();
-        await React.act(async () => authCallback(null));
+        await React.act(async () => { ownerRuntime.clear(); authCallback(null); });
         assert.equal(localStorage.getItem('isGuest'), 'true');
         assert.equal(logoutReadingOwner.current, undefined);
         await React.act(async () => authCallback(null));
         assert.deepEqual(guestRestores.slice(previousGuestRestores), [accountOwner]);
         await React.act(async () => resolveLogoutRestore());
+        await React.act(async () => authCallback({ uid: 'empty-account' }));
+        assert.equal(bootstrap.isAuthenticatedLibraryReady, true, 'a successful empty read is ready');
+        assert.equal(bootstrap.libraryRestoreFailed, false);
       } finally {
         window.setTimeout = originalSet;
         window.clearTimeout = originalClear;
