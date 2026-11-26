@@ -36,7 +36,12 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_WEB_READER_TAILSCALE_DEV_HOST: allowedDevOrigins?.[0] ?? '',
   },
   async headers() {
-    return [{ source: '/sw.js', headers: [{ key: 'Cache-Control', value: 'no-cache' }] }];
+    return [
+      { source: '/sw.js', headers: [{ key: 'Cache-Control', value: 'no-cache' }] },
+      { source: '/catalog/synopses/:file([0-9a-f]{64}\\.json)', headers: [
+        { key: 'Cache-Control', value: 'public, max-age=86400, immutable' },
+      ] },
+    ];
   },
   async rewrites() {
     return [

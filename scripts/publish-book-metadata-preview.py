@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import json
 import os
 import shutil
 import subprocess
@@ -13,9 +14,12 @@ import tempfile
 import time
 from pathlib import Path
 
+from public_book_discovery import SYNOPSIS_FILENAME
+
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX = "public/catalog/discovery.v1.json"
+SYNOPSES = "public/catalog/synopses"
 BRANCH = "refs/heads/preview/mypage"
 TRACKING_REF = "refs/remotes/origin/preview/mypage"
 GITHUB_REPO = "twkim96/web-reader"
@@ -71,16 +75,33 @@ def generate_index(output: Path, *, preview_only: bool) -> None:
 
 
 def update_preview(worktree: Path, source: Path) -> str:
+    source_dir = source.parent / "synopses"
+    files = {p.name: p for p in source_dir.iterdir() if SYNOPSIS_FILENAME.fullmatch(p.name)} if source_dir.is_dir() else {}
+    references = {f"{name}.json" for name in json.loads(source.read_bytes()).get("synopsisShards", [])}
+    if references != files.keys():
+        raise RuntimeError("탐색 인덱스의 소개글 참조와 산출물 파일이 일치하지 않습니다.")
     index = worktree / INDEX
     if index.resolve() != index or not index.is_file():
         raise RuntimeError(f"프리뷰 인덱스가 일반 파일이 아닙니다 ({INDEX}).")
     shutil.copyfile(source, index)
-    changes = git("diff", "--quiet", "--", INDEX, cwd=worktree, check=False)
+    target_dir = worktree / SYNOPSES
+    paths = [INDEX]
+    if target_dir.is_dir():
+        for path in target_dir.iterdir():
+            if SYNOPSIS_FILENAME.fullmatch(path.name) and path.name not in files:
+                path.unlink()
+                paths.append(f"{SYNOPSES}/{path.name}")
+    if files:
+        target_dir.mkdir(exist_ok=True)
+        for name, path in sorted(files.items()):
+            shutil.copyfile(path, target_dir / name)
+            paths.append(f"{SYNOPSES}/{name}")
+    git("add", "-A", "--", *paths, cwd=worktree)
+    changes = git("diff", "--cached", "--quiet", "--", *paths, cwd=worktree, check=False)
     if changes.returncode == 0:
         print("프리뷰 브랜치의 도서 탐색 인덱스와 동일합니다.")
     elif changes.returncode == 1:
-        git("add", "--", INDEX, cwd=worktree)
-        git("commit", "-m", "Refresh the public book discovery index", "--", INDEX, cwd=worktree)
+        git("commit", "-m", "Refresh the public book discovery metadata", "--", *paths, cwd=worktree)
     else:
         changes.check_returncode()
     commit = git("rev-parse", "HEAD", cwd=worktree, capture=True).stdout.strip()
@@ -101,7 +122,8 @@ def run(preview_only: bool) -> None:
         capture_output=True, timeout=30, env=deployment_env(),
     )
     common_dir = (ROOT / git("rev-parse", "--git-common-dir", capture=True).stdout.strip()).resolve()
-    pending = common_dir / "book-metadata-preview-pending.json"
+    pending = common_dir / "book-metadata-preview-pending"
+    legacy_pending = common_dir / "book-metadata-preview-pending.json"
     with (common_dir / "book-metadata-preview.lock").open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -116,22 +138,27 @@ def run(preview_only: bool) -> None:
             worktree = staging / "preview"
             git("worktree", "add", "--detach", str(worktree), base)
             try:
-                source = staging / "discovery.json"
+                bundle = staging / "catalog"
+                source = bundle / "discovery.json"
                 if pending.exists():
-                    source = pending
-                    print("이전에 Firestore에 게시한 인덱스로 프리뷰 배포를 재개합니다.")
+                    source = pending / "discovery.json"
+                    print("이전에 생성한 탐색 인덱스와 소개글로 프리뷰 배포를 재개합니다.")
+                elif legacy_pending.exists():
+                    source = legacy_pending
                 else:
                     generate_index(source, preview_only=preview_only)
                     if not preview_only:
-                        source.replace(pending)
-                        source = pending
+                        bundle.replace(pending)
+                        source = pending / "discovery.json"
                 commit = update_preview(worktree, source)
                 wait_for_preview(gh, commit)
-                pending.unlink(missing_ok=True)
+                if pending.exists():
+                    shutil.rmtree(pending)
+                legacy_pending.unlink(missing_ok=True)
             finally:
                 git("worktree", "remove", "--force", str(worktree), check=False)
-                if pending.exists():
-                    print("Firestore 게시 인덱스를 보관했습니다. 같은 버튼으로 프리뷰 배포를 재개할 수 있습니다.")
+                if pending.exists() or legacy_pending.exists():
+                    print("Firestore와 함께 생성한 탐색 데이터를 보관했습니다. 같은 버튼으로 프리뷰 배포를 재개할 수 있습니다.")
 
 
 if __name__ == "__main__":
@@ -140,6 +167,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
     try:
         run(args.preview_only)
-    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
         print(f"error: {error}", file=sys.stderr)
         sys.exit(1)

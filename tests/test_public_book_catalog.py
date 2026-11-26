@@ -17,7 +17,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from public_book_catalog import build_catalog_documents  # noqa: E402
-from public_book_discovery import build_discovery, discovery_bytes  # noqa: E402
+from public_book_discovery import build_discovery, build_discovery_details, discovery_bytes  # noqa: E402
 
 PUBLISHER_SPEC = importlib.util.spec_from_file_location(
     "publish_book_metadata",
@@ -53,6 +53,9 @@ class DiscoveryPreviewPublishTests(unittest.TestCase):
             index = repo / PREVIEW.INDEX
             index.parent.mkdir(parents=True)
             index.write_text("old")
+            old_shard = repo / PREVIEW.SYNOPSES / ("a" * 64 + ".json")
+            old_shard.parent.mkdir()
+            old_shard.write_text("{}")
             publisher = repo / "scripts/publish-book-metadata.py"
             publisher.parent.mkdir()
             publisher.write_text("raise AssertionError('remote publisher must not run')\n")
@@ -79,14 +82,20 @@ class DiscoveryPreviewPublishTests(unittest.TestCase):
                 "import os, sys\n"
                 "assert sys.argv[3:] == ['--apply', '--project', 'web-novel-viewer']\n"
                 "assert os.environ['GOOGLE_APPLICATION_CREDENTIALS'] == 'fixture-credentials'\n"
-                "Path(sys.argv[2]).write_bytes(Path('source.txt').read_bytes())\n"
+                "index = Path(sys.argv[2])\n"
+                "index.parent.mkdir(parents=True)\n"
+                "index.write_bytes(Path('source.txt').read_bytes())\n"
+                "shards = index.parent / 'synopses'\n"
+                "shards.mkdir()\n"
+                "(shards / ('b' * 64 + '.json')).write_text('published synopsis')\n"
                 "raise SystemExit(1 if Path('reject-publish').exists() else 0)\n"
             )
             source = repo / "source.txt"
-            source.write_text("published")
+            published_index = json.dumps({"synopsisShards": ["b" * 64]})
+            source.write_text(published_index)
             reject_publish = repo / "reject-publish"
             reject_publish.touch()
-            pending = repo / ".git/book-metadata-preview-pending.json"
+            pending = repo / ".git/book-metadata-preview-pending"
 
             def tip(ref):
                 return PREVIEW.git("rev-parse", ref, cwd=remote, capture=True).stdout.strip()
@@ -104,7 +113,7 @@ class DiscoveryPreviewPublishTests(unittest.TestCase):
                 reject_publish.unlink()
                 with self.assertRaises(subprocess.CalledProcessError):
                     PREVIEW.run(preview_only=False)
-                self.assertEqual(pending.read_text(), "published")
+                self.assertEqual((pending / "discovery.json").read_text(), published_index)
                 self.assertEqual(tip(PREVIEW.BRANCH), original)
                 verify.assert_not_called()
                 source.write_text("changed after Firestore publish")
@@ -112,7 +121,7 @@ class DiscoveryPreviewPublishTests(unittest.TestCase):
                 with patch.dict("os.environ", {"CATALOG_TEST_REJECT_PUSH": "no"}):
                     with self.assertRaisesRegex(RuntimeError, "build failed"):
                         PREVIEW.run(preview_only=False)
-                    self.assertEqual(pending.read_text(), "published")
+                    self.assertEqual((pending / "discovery.json").read_text(), published_index)
                     commit = tip(PREVIEW.BRANCH)
                     PREVIEW.run(preview_only=False)
                 self.assertEqual(tip(PREVIEW.BRANCH), commit)
@@ -122,9 +131,12 @@ class DiscoveryPreviewPublishTests(unittest.TestCase):
             self.assertFalse(pending.exists())
             self.assertEqual(tip("refs/heads/main"), original)
             published = PREVIEW.git("show", f"{commit}:{PREVIEW.INDEX}", cwd=remote, capture=True)
-            self.assertEqual(published.stdout, "published")
+            self.assertEqual(published.stdout, published_index)
+            new_shard_path = f"{PREVIEW.SYNOPSES}/{'b' * 64}.json"
+            synopsis = PREVIEW.git("show", f"{commit}:{new_shard_path}", cwd=remote, capture=True)
+            self.assertEqual(synopsis.stdout, "published synopsis")
             committed = PREVIEW.git("diff-tree", "--no-commit-id", "--name-only", "-r", commit, cwd=remote, capture=True)
-            self.assertEqual(committed.stdout.splitlines(), [PREVIEW.INDEX])
+            self.assertCountEqual(committed.stdout.splitlines(), [PREVIEW.INDEX, new_shard_path, str(old_shard.relative_to(repo))])
             self.assertEqual(index.read_text(), "old")
 
     def test_retries_status_errors_and_rejects_a_stale_preview_commit(self):
@@ -297,6 +309,30 @@ class PublicBookCatalogPublisherTests(unittest.TestCase):
             with self.subTest(option=option), patch.object(sys, "argv", ["publisher", "--discovery-output", "out", option]):
                 with self.assertRaises(ValueError):
                     PUBLISHER.main()
+
+    def test_synopsis_shards_follow_popularity_and_reference_only_published_works(self) -> None:
+        self.connection.executescript("""
+            CREATE TABLE catalog_platform_authors(title_key, platform, author);
+            CREATE TABLE catalog_platform_synopses(title_key, platform, synopsis);
+            INSERT INTO catalog_platform_authors VALUES ('가', 'series', '첫 작가'), ('나', 'kakao', '둘째 작가');
+            INSERT INTO catalog_platform_synopses VALUES
+                ('가', 'series', '첫 소개'), ('나', 'series', '시리즈 소개'), ('나', 'kakao', '카카오 소개'),
+                ('가', 'novelpia', '게시되지 않은 플랫폼 소개');
+        """)
+        documents, manifest, _ = self.build("first")
+        discovery = build_discovery(self.aliases, documents, manifest)
+        with patch("public_book_discovery.SYNOPSIS_TARGET_BYTES", 30):
+            files = build_discovery_details(self.connection, discovery)
+        self.assertEqual(discovery["details"], [["첫 작가", 1], ["둘째 작가", 0]])
+        self.assertEqual(list(map(json.loads, files.values())), [{"나": "시리즈 소개"}, {"가": "첫 소개"}])
+        self.assertEqual([f"{key}.json" for key in discovery["synopsisShards"]], list(files))
+        self.assertTrue(all(len(row) == 8 for row in discovery["books"]))
+        previous = discovery["synopsisShards"]
+        self.connection.execute("UPDATE catalog_platform_synopses SET synopsis = '수정 소개' WHERE title_key = '가' AND platform = 'series'")
+        with patch("public_book_discovery.SYNOPSIS_TARGET_BYTES", 30):
+            build_discovery_details(self.connection, discovery)
+        self.assertEqual(discovery["synopsisShards"][0], previous[0])
+        self.assertNotEqual(discovery["synopsisShards"][1], previous[1])
 
     def test_cli_writes_discovery_and_reports_counts(self) -> None:
         self.connection.commit()

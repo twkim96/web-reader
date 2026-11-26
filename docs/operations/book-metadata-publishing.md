@@ -22,22 +22,26 @@
 python3 scripts/publish-book-metadata.py --discovery-output public/catalog/discovery.v1.json
 ```
 
-게시기는 같은 SQLite 읽기 스냅샷에서 공개 작품 키·제목·표지 URL·플랫폼 링크·장르·태그·정렬 수치를 뽑습니다. 로컬 파일명 별칭과 독서 기록은 출력 범위 밖입니다. `schemaVersion`은 파일 형식, `generation`은 공개 인덱스 내용의 해시입니다. 출력 내용이 같으면 생성 시각이 달라도 같은 파일이 나옵니다. 요약에 표시되는 generation, 작품 수와 크기를 확인합니다.
+게시기는 같은 SQLite 읽기 스냅샷에서 공개 작품 키·제목·작가명·표지 URL·플랫폼 링크·장르·태그·정렬 수치를 뽑습니다. 로컬 파일명 별칭과 독서 기록은 출력 범위 밖입니다. `schemaVersion`은 파일 형식, `generation`은 공개 인덱스 내용의 해시입니다. 출력 내용이 같으면 생성 시각이 달라도 같은 파일이 나옵니다. 요약에 표시되는 generation, 작품 수와 크기를 확인합니다.
 
-Firestore 게시와 탐색 갱신을 함께 할 때는 승인된 기존 `--apply` 명령에 `--discovery-output public/catalog/discovery.v1.json`을 추가해 한 번 실행합니다. Firestore 게시 성공과 생성 파일을 확인한 뒤, 인덱스 파일을 포함한 앱을 Vercel에 배포합니다. 탐색 인덱스는 새로 배포된 앱 버전이 제공하며, PWA는 해당 버전에서 처음 받아온 뒤 정적 캐시에 보관할 수 있습니다. Firebase 상세 문서와 책장용 compact catalog는 기존 경로를 사용합니다.
+작가명과 소개글은 게시 대상 플랫폼에서 수집한 값만 사용합니다. 필드마다 네이버 시리즈, 카카오페이지, 노벨피아 순으로 확인해 작품당 값 하나를 선택합니다. 소개글은 기존 인기 점수 내림차순으로 묶어 탐색 인덱스 옆 `synopses/`에 파일당 약 48 KB로 출력합니다. 탐색 인덱스에는 파일과 작품을 연결하는 참조만 담습니다. 상세 페이지에서 필요한 파일을 Vercel에서 받아 브라우저 캐시로 재사용합니다. Firestore 요약·상세 문서에는 소개글을 넣지 않습니다.
+
+탐색 인덱스를 다시 생성할 때 소개글 파일도 같은 읽기 스냅샷에서 갱신합니다. 파일명은 내용 해시로 정하며, 인기 순서나 내용이 바뀌어 묶음 구성이 달라지면 해당 파일의 주소도 바뀝니다. 인덱스와 파일을 함께 배포하며 참조가 사라진 파일은 새 산출물에서 제거합니다. 이전 앱이 가지고 있는 주소가 404를 반환하면 최신 탐색 인덱스에서 작품의 새 주소를 확인합니다. 정적 파일과 게시 브랜치는 공개 범위에 있으므로 배포 대상에는 공개·재게시할 수 있는 소개글을 사용합니다.
+
+Firestore 게시와 탐색 갱신을 함께 할 때는 승인된 기존 `--apply` 명령에 `--discovery-output public/catalog/discovery.v1.json`을 추가해 한 번 실행합니다. Firestore 게시 성공과 생성 파일을 확인한 뒤, 탐색 인덱스와 소개글 파일을 포함한 앱을 Vercel에 배포합니다. 탐색 인덱스는 새로 배포된 앱 버전이 제공하며, PWA는 해당 버전에서 처음 받아온 뒤 정적 캐시에 보관할 수 있습니다. Firebase 상세 문서와 책장용 compact catalog는 기존 경로를 사용합니다.
 
 ## Control Server 경로
 
 `http://127.0.0.1:9000`의 `Services` 탭에서 `Web Reader` Action Group을 엽니다.
 
 1. **도서 메타데이터 게시 미리보기**로 문서 수, 충돌 수, generation과 최대 문서 크기를 확인합니다.
-2. **도서 메타데이터 게시 + 프리뷰 배포**를 실행합니다. [프리뷰 게시 스크립트](../../scripts/publish-book-metadata-preview.py)가 Firestore의 `web-novel-viewer` 프로젝트에 게시하고, 같은 SQLite 읽기 스냅샷으로 탐색 인덱스를 생성합니다.
-3. Firestore 게시가 성공하면 인덱스를 로컬에 보관하고, 별도 작업 공간에서 인덱스 파일만 `preview/mypage`에 커밋·푸시합니다. 파일이 동일하면 새 커밋을 만들지 않습니다. Vercel 빌드가 성공하고 대상 커밋이 여전히 프리뷰 브랜치의 최신이면 완료를 기록합니다.
+2. **도서 메타데이터 게시 + 프리뷰 배포**를 실행합니다. [프리뷰 게시 스크립트](../../scripts/publish-book-metadata-preview.py)가 Firestore의 `web-novel-viewer` 프로젝트에 게시하고, 같은 SQLite 읽기 스냅샷으로 탐색 인덱스와 소개글 파일을 생성합니다.
+3. Firestore 게시가 성공하면 인덱스와 소개글 파일을 로컬에 보관하고, 별도 작업 공간에서 두 산출물만 `preview/mypage`에 커밋·푸시합니다. 파일이 동일하면 새 커밋을 만들지 않습니다. Vercel 빌드가 성공하고 대상 커밋이 여전히 프리뷰 브랜치의 최신이면 완료를 기록합니다.
 4. 서재는 새 Firestore manifest를 읽고, 마이페이지 도서목록은 [프리뷰](https://twreader-git-preview-mypage-twkims-projects-b9c7f5a3.vercel.app/#mypage)의 새 인덱스를 읽습니다.
 
 Action은 로컬 `/Users/twkim/Documents/web_reader`의 게시 스크립트를 실행합니다. Firestore 인증 환경변수는 실제 게시 프로세스에 전달하며 Git·GitHub CLI에서는 제외합니다. `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`에 서비스 계정 JSON을 넣거나 `GOOGLE_APPLICATION_CREDENTIALS`에 로컬 서비스 계정 JSON의 절대 경로를 설정합니다. 실행 계정에는 GitHub 프리뷰 브랜치 푸시 권한과 `gh` 로그인이 필요합니다.
 
-Firestore 게시 뒤 프리뷰 푸시나 배포 확인이 실패하면 같은 버튼으로 저장된 인덱스에서 재개합니다. 이때 SQLite 재조회와 Firestore 재게시는 생략합니다. 보관 파일이 없고 Firestore 게시를 별도로 마쳤다면 다음 명령으로 현재 SQLite에서 프리뷰 인덱스를 갱신할 수 있습니다. 두 단계 사이에 원본이 바뀌었다면 통합 게시를 실행합니다.
+Firestore 게시 뒤 프리뷰 푸시나 배포 확인이 실패하면 같은 버튼으로 보관한 인덱스와 소개글 파일에서 재개합니다. 이때 SQLite 재조회와 Firestore 재게시는 생략합니다. 보관 파일이 없고 Firestore 게시를 별도로 마쳤다면 다음 명령으로 현재 SQLite에서 프리뷰 인덱스를 갱신할 수 있습니다. 두 단계 사이에 원본이 바뀌었다면 통합 게시를 실행합니다.
 
 ```bash
 /opt/anaconda3/bin/python3 -u scripts/publish-book-metadata-preview.py --preview-only

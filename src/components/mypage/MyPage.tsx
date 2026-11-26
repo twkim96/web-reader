@@ -96,6 +96,7 @@ function getDiscoveryList(rows: readonly DiscoveryBook[], sort: CatalogSort): Di
       const id = grouped.byId.get(item.id)?.id ?? item.id;
       const titles = searchableTitles.get(id) ?? [];
       titles.push(item.title.normalize('NFC').toLocaleLowerCase());
+      if (item.author) titles.push(item.author.normalize('NFC').toLocaleLowerCase());
       searchableTitles.set(id, titles);
     }
     const genres = new Set<string>();
@@ -415,7 +416,7 @@ export function MyPage(props: Props) {
         <BookCover url={book.coverUrl} identity={book.id} title={book.title} coverLoading={deferCover ? 'direct-with-proxy-fallback' : undefined} />
         <div className="min-w-0 flex-1">
           <h3 className="line-clamp-2 text-sm font-semibold leading-6 group-hover:text-accent-500">{book.title}</h3>
-          <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] leading-5 opacity-50">{book.genre && <span>{book.genre}</span>}{[...new Set(book.platforms.map(({ label }) => label))].map((label) => <span key={label}>{label}</span>)}{book.sourceCount !== null && <span>{sourceCountFormat.format(book.sourceCount)} 조회·다운로드</span>}</div>
+          <div className="mt-1 flex flex-wrap gap-x-2 text-[11px] leading-5 opacity-50">{book.author && <span>{book.author}</span>}{book.genre && <span>{book.genre}</span>}{[...new Set(book.platforms.map(({ label }) => label))].map((label) => <span key={label}>{label}</span>)}{book.sourceCount !== null && <span>{sourceCountFormat.format(book.sourceCount)} 조회·다운로드</span>}</div>
           {book.tags.length > 0 && <p className="mt-1 truncate text-[11px] opacity-40">{book.tags.slice(0, 5).map((name) => `#${name}`).join(' ')}</p>}
         </div>
       </BookDetailLink>
@@ -561,7 +562,7 @@ export function MyPage(props: Props) {
                     <span className="truncate">#{name}</span><X size={12} aria-hidden="true" className="shrink-0" />
                   </button>
                 ))}
-                <input ref={discoverySearchRef} aria-label="도서 제목 또는 태그 검색" value={query}
+                <input ref={discoverySearchRef} aria-label="도서 제목, 작가 또는 태그 검색" value={query}
                   onChange={(event) => { setQuery(event.target.value); setVisibleCount(60); }}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' && !event.nativeEvent.isComposing && tagSuggestions[0]) {
@@ -569,7 +570,7 @@ export function MyPage(props: Props) {
                       addTag(tagSuggestions[0].label);
                     }
                   }}
-                  placeholder="도서 제목 또는 #태그 검색" className="min-h-8 min-w-0 flex-1 basis-36 bg-transparent text-sm outline-none" />
+                  placeholder="도서 제목, 작가 또는 #태그 검색" className="min-h-8 min-w-0 flex-1 basis-36 bg-transparent text-sm outline-none" />
               </div>
               {tagSuggestions.length > 0 && (
                 <div key={tagQuery} role="group" aria-label="태그 자동완성" {...tagSuggestionDrag}

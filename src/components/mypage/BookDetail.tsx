@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Bookmark as BookmarkIcon, Check, ChevronDown, Heart, Star } from 'lucide-react';
 import type { Book, UserProgress } from '../../types';
 import { buildLocalReviewReading, buildPersonalBookReading, getWorkReadingTitles } from '../../lib/bookDetail';
-import { getGroupedBookDiscovery, getRelatedDiscoveryBooks, type DiscoveryBook } from '../../lib/bookDiscovery';
+import { getGroupedBookDiscovery, getRelatedDiscoveryBooks, loadDiscoverySynopsis, type DiscoveryBook } from '../../lib/bookDiscovery';
 import { useLocalReadingReportSessions } from '../../hooks/useLocalReadingReportSessions';
 import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
 import type { PublicBookMetadata } from '../../lib/publicBookMetadata';
@@ -24,6 +24,32 @@ import { DashboardBookRow } from './DashboardBookRow';
 
 const percent = new Intl.NumberFormat('ko', { maximumFractionDigits: 2 });
 const formatPercent = (number: number) => `${percent.format(number)}%`;
+
+function BookSynopsis({ reference }: { reference: NonNullable<DiscoveryBook['synopsis']> }) {
+  const [text, setText] = useState<string | null>();
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const { shard, workId } = reference;
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadDiscoverySynopsis({ shard, workId }, controller.signal).then((value) => {
+      if (!controller.signal.aborted) setText(value);
+    }).catch(() => {
+      if (!controller.signal.aborted) setFailed(true);
+    });
+    return () => controller.abort();
+  }, [retry, shard, workId]);
+
+  if (text === null) return null;
+  return (
+    <section className="mypage-section" aria-label="작품 소개">
+      <h2 className="text-lg font-semibold tracking-tight">작품 소개</h2>
+      {failed ? <p role="status" className="mt-2 text-sm opacity-65">소개글을 불러오지 못했습니다. <button type="button" onClick={() => { setFailed(false); setRetry((value) => value + 1); }} className="text-accent-500">다시 시도</button></p>
+        : text === undefined ? <p role="status" className="mt-2 text-sm opacity-65">소개글을 불러오는 중…</p>
+          : <p className="mt-2 whitespace-pre-line break-words text-sm leading-relaxed">{text}</p>}
+    </section>
+  );
+}
 
 function CommunityReviews({ workId }: { workId: string }) {
   type Entry = { rating: number; comment: string; totalMs: number | null; progressPercent: number | null; author?: MyPageIdentity };
@@ -270,6 +296,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
               </div>
             </div>
             <h2 className="break-words text-xl font-semibold leading-snug tracking-tight sm:text-3xl">{title}</h2>
+            {discovery?.author && <p className="mt-1 break-words text-sm opacity-70">{discovery.author}</p>}
             {discovery?.tags.length ? <ul className="mt-3 flex flex-wrap gap-x-2 gap-y-1.5 text-xs opacity-65">{discovery.tags.map((tag) => <li key={tag} className="break-all">#{tag}</li>)}</ul> : null}
             {discovery?.sourceCount != null && !metadata && <p className="mt-3 text-xs opacity-65">조회·다운로드 {discovery.sourceCount.toLocaleString('ko')}</p>}
           </div>
@@ -289,6 +316,7 @@ export function BookDetail({ bookId, discovery, readBook, ownerKey, books, progr
           </ul>
         )}
       </section>
+      {discovery?.synopsis && <BookSynopsis key={`${discovery.synopsis.workId}:${discovery.synopsis.shard}`} reference={discovery.synopsis} />}
       {hasPersonal && (
         <section className="mypage-section" aria-label="내 독서 기록">
           <h2 className="text-lg font-semibold tracking-tight">내 독서 기록</h2>

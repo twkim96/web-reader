@@ -12,6 +12,8 @@ export type DiscoveryBook = {
   tags: string[];
   popularity: number | null;
   sourceCount: number | null;
+  author?: string;
+  synopsis?: { workId: string; shard: string };
 };
 
 export const DISCOVERY_INDEX_PATH = '/catalog/discovery.v1.json';
@@ -45,15 +47,19 @@ const isPlatformId = (value: unknown): value is PublicBookPlatformId => (
   value === 'series' || value === 'kakao' || value === 'novelpia'
 );
 const invalidIndex = (): never => { throw new Error('Invalid discovery index'); };
+const synopsisHash = /^[0-9a-f]{64}$/;
 
 export function parseDiscoveryIndex(value: unknown): DiscoveryBook[] {
   if (!isObject(value) || value.schemaVersion !== 1 || !isText(value.generation, 128)
     || !isDictionary(value.genres, 100) || !isDictionary(value.tags, 100)
     || !Array.isArray(value.books)) return invalidIndex();
 
-  const { genres, tags, books } = value;
+  const { genres, tags, books, details, synopsisShards } = value;
+  if (details !== undefined && (!Array.isArray(details) || details.length !== books.length)) return invalidIndex();
+  if (synopsisShards !== undefined && (!isDictionary(synopsisShards, 64)
+    || !synopsisShards.every((hash) => synopsisHash.test(hash)))) return invalidIndex();
   const ids = new Set<string>();
-  return books.map((row): DiscoveryBook => {
+  return books.map((row, index): DiscoveryBook => {
     if (!Array.isArray(row) || row.length !== 8) return invalidIndex();
     const [id, title, coverUrl, rawPlatforms, genre, rawTags, popularity, sourceCount] = row;
     if (!isText(id, 500) || ids.has(id) || !isText(title, 500)
@@ -63,6 +69,22 @@ export function parseDiscoveryIndex(value: unknown): DiscoveryBook[] {
       || !Array.isArray(rawTags) || rawTags.length > 64
       || !isMetric(popularity, 10_000) || !isMetric(sourceCount)) return invalidIndex();
     ids.add(id);
+
+    const detail: unknown = details?.[index];
+    let author: string | undefined;
+    let synopsis: DiscoveryBook['synopsis'];
+    if (detail !== undefined) {
+      if (!Array.isArray(detail) || detail.length !== 2) return invalidIndex();
+      const [name, shard] = detail;
+      if (name !== null) {
+        if (!isText(name, 200)) return invalidIndex();
+        author = name;
+      }
+      if (shard !== null) {
+        if (!synopsisShards || !isIndex(shard, synopsisShards.length)) return invalidIndex();
+        synopsis = { workId: id, shard: synopsisShards[shard] };
+      }
+    }
 
     const platformIds = new Set<PublicBookPlatformId>();
     const platforms = rawPlatforms.map((platform) => {
@@ -78,6 +100,8 @@ export function parseDiscoveryIndex(value: unknown): DiscoveryBook[] {
       genre: genre === null ? null : genres[genre],
       tags: rawTags.map((index) => isIndex(index, tags.length) ? tags[index] : invalidIndex()),
       popularity, sourceCount,
+      ...(author && { author }),
+      ...(synopsis && { synopsis }),
     };
   });
 }
@@ -107,7 +131,12 @@ export function groupDiscoveryBooks(rows: readonly DiscoveryBook[]) {
         platforms.set(key, root);
       });
     }
-    const canonical = { ...selected, platforms: [...links.values()] };
+    const canonical = {
+      ...selected,
+      platforms: [...links.values()],
+      author: selected.author ?? group.find((book) => book.author)?.author,
+      synopsis: selected.synopsis ?? group.find((book) => book.synopsis)?.synopsis,
+    };
     books.push(canonical);
     equivalents.set(root, group.map((book) => book.id).sort());
     for (const book of group) byId.set(book.id, canonical);
@@ -203,7 +232,7 @@ export function createDiscoveryLoader(fetchIndex: (retry: boolean) => Promise<un
   };
 }
 
-export const loadBookDiscovery = createDiscoveryLoader(async (retry) => {
+async function fetchDiscoveryIndex(retry: boolean) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   try {
@@ -221,4 +250,50 @@ export const loadBookDiscovery = createDiscoveryLoader(async (retry) => {
   } finally {
     clearTimeout(timer);
   }
-});
+}
+
+export const loadBookDiscovery = createDiscoveryLoader(fetchDiscoveryIndex);
+
+const pendingSynopsisShards = new Map<string, Promise<Record<string, unknown> | undefined>>();
+
+function readSynopsisShard(shard: string) {
+  const pending = pendingSynopsisShards.get(shard);
+  if (pending) return pending;
+  const request = (async () => {
+    const response = await fetch(`/catalog/synopses/${shard}.json`, { signal: AbortSignal.timeout(10_000) });
+    if (response.status === 404) return undefined;
+    if (!response.ok) throw new Error('Synopsis unavailable');
+    const payload: unknown = await response.json();
+    if (!isObject(payload)) throw new Error('Invalid synopsis shard');
+    return payload;
+  })().finally(() => pendingSynopsisShards.delete(shard));
+  pendingSynopsisShards.set(shard, request);
+  return request;
+}
+
+export async function loadDiscoverySynopsis(
+  reference: NonNullable<DiscoveryBook['synopsis']>,
+  signal: AbortSignal,
+): Promise<string | null> {
+  const read = async ({ shard, workId }: typeof reference) => {
+    if (!synopsisHash.test(shard)) throw new Error('Invalid synopsis shard');
+    const payload = await readSynopsisShard(shard);
+    signal.throwIfAborted();
+    if (payload === undefined) return undefined;
+    if (!Object.hasOwn(payload, workId) || !isText(payload[workId], 20_000)) {
+      throw new Error('Invalid synopsis');
+    }
+    return payload[workId];
+  };
+  const result = await read(reference);
+  if (result !== undefined) return result;
+  // A deploy may replace a shard referenced by an already-open app.
+  const refreshedIndex = parseDiscoveryIndex(await fetchDiscoveryIndex(true));
+  signal.throwIfAborted();
+  const current = getGroupedBookDiscovery(refreshedIndex).byId.get(reference.workId)?.synopsis;
+  if (!current) return null;
+  if (current.shard === reference.shard) throw new Error('Synopsis unavailable');
+  const refreshed = await read(current);
+  if (refreshed === undefined) throw new Error('Synopsis unavailable');
+  return refreshed;
+}

@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import re
+import sqlite3
 from typing import Any
 from urllib.parse import urlsplit
 
 from public_book_catalog import PLATFORMS, checksum, stable_json
+
+SYNOPSIS_TARGET_BYTES = 48_000
+SYNOPSIS_FILENAME = re.compile(r"[0-9a-f]{64}\.json")
 
 
 def _text(value: Any, limit: int) -> str:
@@ -56,3 +61,57 @@ def build_discovery(aliases: list[dict[str, Any]], documents: list[dict[str, Any
 
 def discovery_bytes(discovery: dict[str, Any]) -> bytes:
     return (stable_json(discovery) + "\n").encode("utf-8")
+
+
+def build_discovery_details(connection: sqlite3.Connection, discovery: dict[str, Any]) -> dict[str, bytes]:
+    """Add optional author and shard references without changing the V1 book rows."""
+    tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    books = {row[0]: row for row in discovery["books"]}
+
+    def preferred(table: str, field: str, limit: int) -> dict[str, str]:
+        if table not in tables:
+            return {}
+        candidates = {}
+        for key, platform, raw in connection.execute(
+            f"SELECT title_key, platform, {field} FROM {table} WHERE {field} IS NOT NULL"
+        ):
+            book = books.get(key)
+            if not book or not any(source[0] == platform for source in book[3]) or not isinstance(raw, str):
+                continue
+            value = raw.strip()
+            if value and len(value.encode("utf-16-le")) // 2 <= limit:
+                candidates[key, platform] = value
+        return {key: next(candidates[key, p] for p in PLATFORMS if (key, p) in candidates)
+                for key in {key for key, _ in candidates}}
+
+    authors = preferred("catalog_platform_authors", "author", 200)
+    synopses = preferred("catalog_platform_synopses", "synopsis", 20_000)
+    shards: dict[str, bytes] = {}
+    references: dict[str, int] = {}
+    pending: dict[str, str] = {}
+    size = 3  # Braces and final newline.
+
+    def flush() -> None:
+        index = len(shards)
+        name = checksum(pending)
+        shards[name + ".json"] = discovery_bytes(pending)
+        references.update(dict.fromkeys(pending, index))
+        pending.clear()
+
+    popular = sorted(synopses, key=lambda key: (-(books[key][6] or 0), -(books[key][7] or 0), key))
+    for key in popular:
+        entry_size = len(stable_json({key: synopses[key]}).encode("utf-8")) - 1
+        if pending and size + entry_size > SYNOPSIS_TARGET_BYTES:
+            flush()
+            size = 3
+        pending[key] = synopses[key]
+        size += entry_size
+    if pending:
+        flush()
+    if authors or shards:
+        discovery["synopsisShards"] = [name.removesuffix(".json") for name in shards]
+        discovery["details"] = [
+            [authors.get(key), references.get(key)] for key in books
+        ]
+        discovery["generation"] = checksum({k: v for k, v in discovery.items() if k != "generation"})
+    return shards

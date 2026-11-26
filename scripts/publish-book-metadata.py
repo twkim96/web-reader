@@ -20,7 +20,7 @@ from typing import Any, Iterable
 from urllib.parse import quote
 
 from public_book_catalog import build_catalog_documents, load_genre_resolver
-from public_book_discovery import build_discovery, discovery_bytes
+from public_book_discovery import SYNOPSIS_FILENAME, build_discovery, build_discovery_details, discovery_bytes
 
 
 PLATFORM_LABELS = {
@@ -67,7 +67,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="기존 상세 projection만 생성·게시",
     )
-    parser.add_argument("--discovery-output", type=Path, help="공개 discovery JSON 출력 경로")
+    parser.add_argument("--discovery-output", type=Path, help="공개 탐색 인덱스 출력 경로. 소개글은 옆의 synopses 폴더에 출력")
     parser.add_argument("--limit", type=int, default=0, help="검증용 문서 수 제한")
     parser.add_argument("--apply", action="store_true", help="Firestore에 실제 게시")
     parser.add_argument(
@@ -504,6 +504,18 @@ def publish_catalog_documents(
     return created, reused
 
 
+def write_atomic(path: Path, data: bytes) -> None:
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(data)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
 def main() -> int:
     args = parse_args()
     if args.limit < 0:
@@ -519,6 +531,7 @@ def main() -> int:
     catalog_manifest: dict[str, Any] | None = None
     catalog_summary: dict[str, Any] | None = None
     discovery: dict[str, Any] | None = None
+    synopsis_files: dict[str, bytes] = {}
     with open_readonly(args.database) as connection:
         connection.execute("BEGIN")
         require_schema(connection, include_catalog=not args.skip_catalog)
@@ -543,6 +556,7 @@ def main() -> int:
             )
             if args.discovery_output:
                 discovery = build_discovery(aliases, catalog_documents, catalog_manifest)
+                synopsis_files = build_discovery_details(connection, discovery)
     if args.limit:
         documents = documents[: args.limit]
     summary = {
@@ -577,19 +591,25 @@ def main() -> int:
     if args.discovery_output and discovery is not None:
         data = discovery_bytes(discovery)
         args.discovery_output.parent.mkdir(parents=True, exist_ok=True)
-        temporary = None
-        try:
-            with tempfile.NamedTemporaryFile(dir=args.discovery_output.parent, delete=False) as handle:
-                temporary = Path(handle.name)
-                handle.write(data)
-            os.replace(temporary, args.discovery_output)
-        finally:
-            if temporary is not None and temporary.exists():
-                temporary.unlink()
+        synopsis_dir = args.discovery_output.parent / "synopses"
+        if synopsis_files:
+            synopsis_dir.mkdir(exist_ok=True)
+            for name, content in synopsis_files.items():
+                write_atomic(synopsis_dir / name, content)
+        write_atomic(args.discovery_output, data)
+        if synopsis_dir.is_dir():
+            for path in synopsis_dir.iterdir():
+                if SYNOPSIS_FILENAME.fullmatch(path.name) and path.name not in synopsis_files:
+                    path.unlink()
         summary["discoveryOutput"] = {
             "path": str(args.discovery_output), "generation": discovery["generation"],
             "books": len(discovery["books"]), "genres": len(discovery["genres"]),
             "tags": len(discovery["tags"]), "bytes": len(data),
+            "authors": sum(author is not None for author, _ in discovery.get("details", [])),
+            "synopses": sum(shard is not None for _, shard in discovery.get("details", [])),
+            "synopsisFiles": len(synopsis_files),
+            "synopsisBytes": sum(map(len, synopsis_files.values())),
+            "maxSynopsisFileBytes": max(map(len, synopsis_files.values()), default=0),
         }
     if args.apply:
         if not args.project:

@@ -48,7 +48,7 @@ test('discovery completes hashtag queries and combines removable tag filters', a
   } }));
   await page.goto('/#mypage/discover');
   const list = page.getByRole('region', { name: '도서 목록', exact: true });
-  const search = page.getByRole('textbox', { name: '도서 제목 또는 태그 검색' });
+  const search = page.getByRole('textbox', { name: '도서 제목, 작가 또는 태그 검색' });
   const filter = page.getByLabel('도서 태그 필터');
   await expect(filter.getByRole('option')).toHaveText(['태그 추가', '던전', '마법', '회귀물']);
 
@@ -90,7 +90,7 @@ test('discovery completes Korean tag initials by title count in a horizontal row
   } }));
 
   await page.goto('/#mypage/discover');
-  const search = page.getByRole('textbox', { name: '도서 제목 또는 태그 검색' });
+  const search = page.getByRole('textbox', { name: '도서 제목, 작가 또는 태그 검색' });
   const suggestions = page.getByRole('group', { name: '태그 자동완성' });
   const buttons = suggestions.getByRole('button');
   const books = page.getByRole('region', { name: '도서 목록', exact: true }).getByRole('link');
@@ -113,6 +113,47 @@ test('discovery completes Korean tag initials by title count in a horizontal row
   await buttons.last().click();
   await expect(page.getByRole('button', { name: '#고유명사 제거' })).toBeVisible();
   await expect(books).toHaveCount(1);
+});
+
+test('discovery searches by author and loads the current synopsis only in book detail', async ({ page }) => {
+  const oldShard = 'a'.repeat(64);
+  const newShard = 'b'.repeat(64);
+  const secondShard = 'c'.repeat(64);
+  let indexRequests = 0;
+  const shardRequests: string[] = [];
+  await page.route('**/catalog/discovery.v1.json', route => {
+    const shard = indexRequests++ === 0 ? oldShard : newShard;
+    return route.fulfill({ json: {
+      schemaVersion: 1, generation: shard, genres: [], tags: [],
+      books: [
+        ['소설', '별의 이야기', null, [['series', 'https://example.test/synopsis/first']], null, [], 10, null],
+        ['다른책', '다른 이야기', null, [['series', 'https://example.test/synopsis/second']], null, [], 9, null],
+      ],
+      details: [['하늘 작가', 0], [null, 1]],
+      synopsisShards: [shard, secondShard],
+    } });
+  });
+  await page.route('**/catalog/synopses/*.json', route => {
+    const shard = new URL(route.request().url()).pathname.split('/').at(-1);
+    if (shard) shardRequests.push(shard);
+    return shard === `${newShard}.json`
+      ? route.fulfill({ json: { 소설: '새로 올라온 작품 소개\n둘째 줄' } })
+      : route.fulfill({ status: 404 });
+  });
+
+  await page.goto('/#mypage/discover');
+  const list = page.getByRole('region', { name: '도서 목록', exact: true });
+  await expect(list.getByRole('link')).toHaveCount(2);
+  await page.getByRole('textbox', { name: '도서 제목, 작가 또는 태그 검색' }).fill('하늘 작가');
+  await expect(list.getByRole('link')).toHaveCount(1);
+  await expect(list.getByText('하늘 작가')).toBeVisible();
+  expect(shardRequests).toEqual([]);
+
+  await list.getByRole('link', { name: '별의 이야기' }).click();
+  await expect(page.getByRole('region', { name: '도서 기본정보' }).getByText('하늘 작가')).toBeVisible();
+  await expect(page.getByRole('region', { name: '작품 소개' }).getByText('새로 올라온 작품 소개 둘째 줄')).toBeVisible();
+  expect(shardRequests).toEqual([`${oldShard}.json`, `${newShard}.json`]);
+  expect(indexRequests).toBe(2);
 });
 
 test('book detail loads the catalog thumbnail directly and retries a denied original once', async ({ page }) => {
