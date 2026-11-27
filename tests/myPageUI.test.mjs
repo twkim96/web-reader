@@ -698,11 +698,13 @@ test('stars navigate to the detail editor, preserving the draft across failed sa
       .find((button) => button.textContent === label));
     await openCollectionTab('위시리스트');
     await click(window, visible(`a[aria-label="${unread.title}"]`));
-    await act(async () => { await delay(0); });
+    const unreadStar = () => editor()?.querySelector('button[aria-label="3점"]');
+    for (let attempt = 0; attempt < 50 && unreadStar()?.disabled !== false; attempt++) {
+      await act(async () => delay(10));
+    }
     assert.equal(visible('[aria-label="내 독서 기록"]'), null);
-    const unreadStar = editor().querySelector('button[aria-label="3점"]');
-    assert.equal(unreadStar.disabled, false);
-    await click(window, unreadStar);
+    assert.equal(unreadStar()?.disabled, false);
+    await click(window, unreadStar());
     await act(async () => visible('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
     assert.equal(writes[5].workId, unread.id);
     assert.equal(writes[5].rating, 3);
