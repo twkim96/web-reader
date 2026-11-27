@@ -18,6 +18,7 @@ test('same-version build updates its imported worker script and prepares the new
     Promise.all(fontPaths.map(async path => [path, await readFile(`public${path}`)] as const)).then(entries => new Map(entries)),
   ]);
   let build = 'first';
+  const readerChunk = () => `/_next/static/${build === 'second' ? 'immutable/' : ''}chunks/${build}-reader.js`;
   let unavailable = false;
   const server = createServer((request, response) => {
     if (unavailable) { request.socket.destroy(); return; }
@@ -33,8 +34,8 @@ test('same-version build updates its imported worker script and prepares the new
         : `self.PC_READER_BUILD_ID = "${build}"; self.PC_READER_HAS_OFFLINE_ASSETS = true;`);
     } else if (request.url === `/_next/static/${build}/offline-assets.json`) {
       response.setHeader('Content-Type', 'application/json');
-      response.end(JSON.stringify([`/_next/static/chunks/${build}-reader.js`]));
-    } else if (request.url === `/_next/static/chunks/${build}-reader.js`) {
+      response.end(JSON.stringify([readerChunk()]));
+    } else if (request.url === readerChunk()) {
       response.setHeader('Content-Type', 'application/javascript');
       response.end(`export default "${build}";`);
     } else if (request.url?.startsWith('/_next/static/')) {
@@ -100,7 +101,7 @@ test('same-version build updates its imported worker script and prepares the new
     await expect(page).toHaveTitle('second');
     await expect(page.locator('body')).toHaveText('second');
     const offlineReaderBuild = await page.evaluate(async () => {
-      const path = '/_next/static/chunks/second-reader.js';
+      const path = '/_next/static/immutable/chunks/second-reader.js';
       return (await import(path)).default;
     });
     expect(offlineReaderBuild).toBe('second');

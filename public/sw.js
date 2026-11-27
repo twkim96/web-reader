@@ -69,7 +69,7 @@ const fetchOfflineAssets = async () => {
   if (!response.ok) throw new Error('Offline asset list download failed');
   const assets = await response.json();
   if (!Array.isArray(assets) || !assets.length || assets.some(path => (
-    typeof path !== 'string' || !/^\/_next\/static\/chunks\/[\w.-]+\.(?:js|css)$/.test(path)
+    typeof path !== 'string' || !/^\/_next\/static\/(?:immutable\/)?chunks\/[\w.-]+\.(?:js|css)$/.test(path)
   ))) throw new Error('Invalid offline asset list');
   return assets;
 };
