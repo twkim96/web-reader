@@ -7,6 +7,10 @@ import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { APP_ID } from '../src/lib/appIdentity.ts';
 import { getReadingSessionLocalDate } from '../src/lib/readingStatistics.ts';
+import {
+  encodeReadingDayMember, identifyReadingDaySession, parseReadingDayDocument, parseReadingDaySession,
+  readingDayPartId, READING_STATISTICS_DAY_MAX_SESSIONS,
+} from '../src/lib/readingStatisticsDay.ts';
 import { latestReadingPublicationCutoff } from '../src/lib/readingRollupBootstrap.ts';
 import { computeReadingCalendarRollup, computeWeeklyReadingRollup, mergeReadingFileRollups } from '../src/lib/readingStatisticsRollup.ts';
 import { addReadingRollupPage, createReadingRollupCarry, rollupCoversHistoryStart } from '../src/server/readingRollupInputs.ts';
@@ -14,6 +18,9 @@ import { readPublishedReadingBootstrap, readPublishedReadingEvidenceInputs, read
 import {
   claimReadingRollup, releaseReadingRollup, reserveReadingRollupReads, runReadingRollupCron, stageReadingRollupHandoff,
 } from '../src/server/readingRollupStore.ts';
+import {
+  appendReadingDaySession, readingDaySource, readingDayWindowQuery, readReadingDayWindowMemberRows,
+} from '../src/server/readingStatisticsDayStore.ts';
 
 assert.ok(process.env.FIRESTORE_EMULATOR_HOST, 'Firestore emulator required');
 const app = initializeApp({ projectId: 'demo-web-reader' }, 'reading-rollup-test');
@@ -72,6 +79,208 @@ function session(sessionId, started, fields = {}) {
   };
 }
 
+async function seedDayPart(store, uid, rows) {
+  const [{ session: first, received }] = rows;
+  const { bucket } = await parseReadingDaySession(first);
+  const members = rows.map(({ session: value, received: firstReceivedAt }) =>
+    [value.sessionId, { ...encodeReadingDayMember(value), firstReceivedAt }]);
+  const ref = readingDaySource(store, uid).doc(readingDayPartId(bucket, 0));
+  await ref.set({
+    containerVersion: 2, bucket, part: 0, deviceId: first.deviceId, capturedDay: first.localDate,
+    firstReceivedAt: received, lastReceivedAt: rows.at(-1).received, hasNext: false, memberCount: members.length,
+    bytes: members.reduce((size, [, entry]) => size + entry.bytes, 0),
+    intervals: members.reduce((size, [, entry]) => size + entry.intervals, 0),
+    members: Object.fromEntries(members.map(([id, { payload, firstReceivedAt }]) => [id, { payload, firstReceivedAt }])),
+  });
+  return ref;
+}
+
+test('device-day appends keep stable identities and a resumable cutoff after a later append', async () => {
+  const uid = 'day-session-window';
+  const at = '2026-11-22T14:00:00Z';
+  const createSession = (deviceId, started = at) => identifyReadingDaySession(session(randomUUID(), started, {
+    deviceId, timezoneOffsetMinutes: -540, localDate: getReadingSessionLocalDate(Date.parse(started), -540),
+  }));
+  const first = await createSession('device-a');
+  const second = await createSession('device-b');
+  const later = await createSession('device-a');
+  const parts = readingDaySource(db, uid);
+  const parsed = await parseReadingDaySession(first);
+  const firstPart = parts.doc(readingDayPartId(parsed.bucket, 0));
+  const append = async (value) => appendReadingDaySession(db, uid, await parseReadingDaySession(value));
+
+  const results = await Promise.all([append(first), append(first)]);
+  assert.deepEqual(results.map(({ status }) => status).sort(), ['created', 'replayed']);
+  const original = (await firstPart.get()).get('firstReceivedAt');
+  const modified = { ...first, endProgressPercent: 80 };
+  assert.deepEqual(await append(modified), { status: 'conflict', remote: first });
+  await assert.rejects(parseReadingDaySession({ ...first, deviceId: 'device-b' }), /Invalid reading day identity/);
+  await assert.rejects(parseReadingDaySession({
+    ...first, startedAtClient: Date.parse('2026-11-23T14:00:00Z'),
+    endedAtClient: Date.parse('2026-11-23T14:03:00Z'), localDate: '2026-11-23',
+  }), /Invalid reading day identity/);
+
+  await append(second);
+  const cutoff = (await parts.get()).readTime;
+  const floor = Timestamp.fromMillis(0);
+  const window = readingDayWindowQuery(db, uid, floor, cutoff);
+  const page = await window.limit(1).get();
+  assert.equal(page.docs[0].id, firstPart.id);
+  const cursor = [page.docs[0].get('lastReceivedAt'), page.docs[0].get('firstReceivedAt'), page.docs[0].id];
+  await append(later);
+  await append(await createSession('device-c'));
+  const rest = await window.startAfter(...cursor).get();
+  assert.equal(rest.size, 2, 'the mutated part stays visible, but a newly received day is outside the cutoff');
+  const entries = [...page.docs, ...rest.docs].flatMap((doc) => readReadingDayWindowMemberRows(doc, floor, cutoff));
+  assert.deepEqual([...new Set(entries.map(({ session }) => session.sessionId))].sort(), [first.sessionId, second.sessionId].sort());
+  const newPart = await firstPart.get();
+  assert.ok(newPart.get('firstReceivedAt').isEqual(original));
+  assert.ok(newPart.get('lastReceivedAt') > cutoff);
+  assert.deepEqual(readReadingDayWindowMemberRows(newPart, cutoff, newPart.readTime).map(({ session }) => session), [later]);
+});
+
+test('a full device-day part spills once and replays from either part without adding data', async () => {
+  const uid = 'day-session-spill';
+  const make = () => identifyReadingDaySession(session(randomUUID(), '2026-11-22T14:00:00Z'));
+  const sessions = await Promise.all(Array.from({ length: READING_STATISTICS_DAY_MAX_SESSIONS }, make));
+  const next = await make();
+  const parts = readingDaySource(db, uid);
+  const start = Timestamp.fromMillis(Date.parse('2026-11-22T16:00:00Z'));
+  await seedDayPart(db, uid, sessions.map((session) => ({ session, received: start })));
+  const append = async (value) => appendReadingDaySession(db, uid, await parseReadingDaySession(value));
+  assert.equal((await append(next)).status, 'created');
+  assert.equal((await append(next)).status, 'replayed');
+  assert.equal((await append(sessions.at(-1))).status, 'replayed');
+  const docs = await parts.get();
+  assert.equal(docs.size, 2);
+  const rows = docs.docs.map((doc) => parseReadingDayDocument(doc.data(), doc.id)).sort((left, right) => left.part - right.part);
+  assert.equal(rows[0].entries.length, READING_STATISTICS_DAY_MAX_SESSIONS);
+  assert.ok(rows[0].hasNext);
+  assert.deepEqual(rows[1].entries.map(({ session }) => session), [next]);
+});
+
+test('Cron enrolls a day-only account and resumes mixed-source publication without admitting late members', async (t) => {
+  const mixedApp = initializeApp({ projectId: 'demo-web-reader-rollup-days' }, 'rollup-days-test');
+  t.after(() => deleteApp(mixedApp));
+  const store = getFirestore(mixedApp);
+  const uid = 'day-only-until-legacy-returns';
+  const job = store.doc(`${root}/readingStatsRollupJobsV1/${uid}`);
+  const captured = await identifyReadingDaySession(session(randomUUID(), '2026-11-22T15:00:00Z'));
+  const late = await identifyReadingDaySession(session(randomUUID(), '2026-11-22T16:00:00Z'));
+  const legacy = session('returned-v1-record', '2026-11-22T17:00:00Z');
+  const received = (at) => Timestamp.fromMillis(Date.parse(at));
+  const cutoff = received('2026-11-24T09:00:00Z');
+  const firstMember = { session: captured, received: received('2026-11-23T01:00:00Z') };
+  await seedDayPart(store, uid, [firstMember]);
+  const pacific = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Los_Angeles', dateStyle: 'short' });
+  let time = Date.parse('2026-11-23T18:00:00Z');
+  const now = () => time;
+  assert.deepEqual(await runReadingRollupCron(store, { now, listAccounts: async () => ({
+    users: [{ uid, disabled: false }],
+  }) }), { enrolled: 1 });
+  assert.equal((await job.get()).get('bootstrapDueAt'), time);
+  // Seed a snapshot taken the day before the deadline to keep the fixture
+  // independent of the wall clock of the emulator.
+  await job.update({ 'bootstrap.cutoff': Timestamp.fromMillis(time), 'bootstrap.scanned': true });
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { prepared: 1 });
+  await store.doc(`${root}/users/${uid}/libraries/local/readingStatsV1/${legacy.sessionId}`).set({
+    ...legacy, uploadedAtServer: received('2026-11-24T08:59:59Z'),
+  });
+  const lateMember = { session: late, received: received('2026-11-24T09:00:01Z') };
+  await seedDayPart(store, uid, [firstMember, lateMember]);
+  time = cutoff.toMillis();
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { published: 1 });
+  const archive = await readPublishedReadingBootstrap(store, uid);
+  const expected = computeWeeklyReadingRollup([captured, legacy], '2026-11-16');
+  assert.deepEqual(archive.calendar.days, expected.days);
+  assert.equal(archive.sourceThrough.seconds, cutoff.seconds);
+  const publication = job.collection('readingStatsRollupWeeksV1').doc('2026-11-16');
+  const before = (await publication.get()).get('payload');
+  time += weekMs;
+  await store.doc(`${root}/readingStatsRollupBudgetsV1/${pacific.format(time)}`).set({ sourceReads: 3_992 });
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { budget: 1 });
+  assert.equal((await publication.get()).get('payload'), before);
+  time += 86_400_000;
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { published: 1 });
+  assert.deepEqual((await readPublishedReadingBootstrap(store, uid)).calendar.days, expected.days);
+});
+
+test('a first publication prepared after cutoff excludes already late day members', async (t) => {
+  const lateApp = initializeApp({ projectId: 'demo-web-reader-day-late-first' }, 'day-late-first');
+  t.after(() => deleteApp(lateApp));
+  const store = getFirestore(lateApp);
+  const uid = 'late-first';
+  const job = store.doc(`${root}/readingStatsRollupJobsV1/${uid}`);
+  const first = await identifyReadingDaySession(session(randomUUID(), '2026-11-22T14:00:00Z'));
+  const late = await identifyReadingDaySession(session(randomUUID(), '2026-11-22T15:00:00Z'));
+  const close = Date.parse('2026-11-24T09:00:00Z');
+  const now = () => close + 86_400_000;
+  await seedDayPart(store, uid, [
+    { session: first, received: Timestamp.fromMillis(close - 1) },
+    { session: late, received: Timestamp.fromMillis(close + 1) },
+  ]);
+  await job.create({ bootstrapDueAt: now(), bootstrap: {
+    cutoff: Timestamp.fromMillis(now()), cursor: null, chunks: 0, bytes: 0, scanned: true,
+  } });
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { prepared: 1 });
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { published: 1 });
+  const archive = await readPublishedReadingBootstrap(store, uid);
+  assert.deepEqual(archive.sourceThrough, { seconds: close / 1000, nanoseconds: 0 });
+  assert.deepEqual(archive.calendar.days, computeWeeklyReadingRollup([first], '2026-11-16').days);
+});
+
+test('a large mixed-source week resumes its spilled checkpoint after two budget pauses', async (t) => {
+  const spillApp = initializeApp({ projectId: 'demo-web-reader-day-rollup-spill' }, 'day-rollup-spill');
+  t.after(() => deleteApp(spillApp));
+  const store = getFirestore(spillApp);
+  const uid = 'rollup-spill';
+  const job = store.doc(`${root}/readingStatsRollupJobsV1/${uid}`);
+  const scratch = job.collection('readingStatsRollupDayChunksV2');
+  const sourceCutoff = Timestamp.fromMillis(Date.parse('2026-11-23T08:00:00Z'));
+  let time = sourceCutoff.toMillis();
+  const now = () => time;
+  const lease = await claimReadingRollup(store, uid, now);
+  await stageReadingRollupHandoff(store, lease, {
+    weeks: weekStarts.slice(0, -1).map((week) => computeWeeklyReadingRollup([], week)),
+    nextWeek, sourceCutoff, carry: createReadingRollupCarry([], nextWeek), pilotTuesday: true,
+  }, now);
+  await releaseReadingRollup(store, lease);
+
+  const received = Timestamp.fromMillis(sourceCutoff.toMillis() + 60_000);
+  const groups = await Promise.all(Array.from({ length: 3 }, (_, device) => Promise.all(
+    Array.from({ length: 60 }, (_, i) => identifyReadingDaySession(session(randomUUID(),
+      new Date(Date.parse('2026-11-22T05:00:00Z') + (device * 60 + i) * 180_000).toISOString(),
+      { deviceId: `device-${device}`, bookTitle: '가'.repeat(700) }))),
+  )));
+  await Promise.all(groups.map((rows) => seedDayPart(store, uid, rows.map((value) => ({ session: value, received })))));
+  const legacy = session('legacy-at-end', '2026-11-22T16:00:00Z');
+  await store.doc(`${root}/users/${uid}/libraries/local/readingStatsV1/${legacy.sessionId}`).set({
+    ...legacy, uploadedAtServer: Timestamp.fromMillis(received.toMillis() + 1),
+  });
+
+  time = Date.parse('2026-11-24T09:10:00Z');
+  const budget = (date) => store.doc(`${root}/readingStatsRollupBudgetsV1/${date}`);
+  await budget('2026-11-24').set({ sourceReads: 3_992 });
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { budget: 1 });
+  const first = JSON.parse((await job.get()).get('payload')).dayScan;
+  assert.equal(first.scanned, true);
+  assert.ok(first.spillCount > 1);
+  assert.equal((await scratch.get()).size, first.spillCount);
+  assert.equal(first.appliedDay, undefined);
+
+  time += 86_400_000;
+  await budget('2026-11-25').set({ sourceReads: 3_999 });
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { budget: 1 });
+  assert.ok(JSON.parse((await job.get()).get('payload')).dayScan.appliedDay);
+  assert.equal((await scratch.get()).size, first.spillCount);
+
+  time += 86_400_000;
+  assert.deepEqual(await runReadingRollupCron(store, { now }), { published: 1 });
+  const payload = (await job.collection('readingStatsRollupWeeksV1').doc(nextWeek).get()).get('payload');
+  assert.deepEqual(JSON.parse(payload), computeWeeklyReadingRollup([...groups.flat(), legacy], nextWeek));
+  assert.equal((await scratch.get()).empty, true);
+});
+
 test('rollup writers share an account lease and Cron reservations share the Pacific-day quota', async () => {
   let time = Date.parse('2026-12-10T10:00:00Z');
   const now = () => time;
@@ -122,7 +331,7 @@ test('Cron enrolls an account with reading history and resumes its private initi
   await Promise.all([
     reading.doc('0-malformed-import').create({ schemaVersion: 1, sessionId: '0-malformed-import' }),
     reading.doc(legacy.sessionId).create(legacy),
-    reading.doc(recent.sessionId).create({ ...recent, uploadedAtServer: FieldValue.serverTimestamp() }),
+    reading.doc(recent.sessionId).create({ ...recent, uploadedAtServer: Timestamp.fromMillis(cutoff - 1) }),
     existing.create({ dueAt: time + 30 * day, payload: 'original-pilot-job' }),
   ]);
   const pages = [];
@@ -221,7 +430,7 @@ test('an oversized initial page checkpoints only the committed source prefix', a
   assert.deepEqual(await runReadingRollupCron(store, { now }), { budget: 1 });
   const progress = (await job.get()).get('bootstrap');
   const staged = (await job.collection('readingStatsRollupBootstrapChunksV1').get()).docs
-    .flatMap((doc) => JSON.parse(doc.get('payload')).map(({ sessionId }) => sessionId)).sort();
+    .flatMap((doc) => JSON.parse(doc.get('payload')).map(({ session, sessionId }) => session?.sessionId ?? sessionId)).sort();
   assert.ok(staged.length > 0 && staged.length < fixture.length);
   assert.deepEqual(staged, fixture.slice(0, staged.length).map(({ sessionId }) => sessionId));
   assert.equal(progress.cursor, staged.at(-1));
@@ -386,7 +595,8 @@ test('a budget pause keeps the source cursor and exposes the first calendar only
   time = Date.parse('2026-11-24T08:59:59Z');
   assert.deepEqual(await runReadingRollupCron(db, { now }), {});
   time = Date.parse('2026-11-24T09:10:00Z');
-  await quotaRef('2026-11-24').set({ sourceReads: 3_999 });
+  // Eight day-source reservations plus one legacy source slot.
+  await quotaRef('2026-11-24').set({ sourceReads: 3_991 });
   assert.deepEqual(await runReadingRollupCron(db, { now }), { budget: 1 });
   const checkpoint = JSON.parse((await job.get()).get('payload'));
   assert.equal(checkpoint.cursor.id, across.sessionId);
@@ -474,7 +684,7 @@ test('normal one-minute TTS survives the legacy checkpoint size limit and resume
   const detail = job.collection('readingStatsRollupWeeksV1').doc(openWeek);
   const dueAt = (await job.get()).get('dueAt');
   time = Date.parse('2026-06-16T09:10:00Z');
-  await quotaRef('2026-06-16').set({ sourceReads: 3_300 });
+  await quotaRef('2026-06-16').set({ sourceReads: 3_292 });
   assert.deepEqual(await runReadingRollupCron(db, { now }), { budget: 1 });
   const legacy = JSON.parse((await job.get()).get('payload'));
   assert.equal(legacy.cursor.id, tts[699].sessionId);
@@ -543,7 +753,7 @@ test('an old checkpoint replays a discarded page and publishes valid later rows 
   const details = job.collection('readingStatsRollupWeeksV1');
   const manifest = job.collection('readingStatsRollupManifestsV1').doc('current');
   time = Date.parse('2026-11-24T09:10:00Z');
-  await quotaRef('2026-11-24').set({ sourceReads: 3_999 });
+  await quotaRef('2026-11-24').set({ sourceReads: 3_991 });
   assert.deepEqual(await runReadingRollupCron(db, { now }), { budget: 1 });
   const checkpoint = JSON.parse((await job.get()).get('payload'));
   assert.equal(checkpoint.cursor.id, late.sessionId);

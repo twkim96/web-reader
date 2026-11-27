@@ -5,10 +5,11 @@ import {
 } from 'firebase-admin/firestore';
 import { APP_ID } from '../lib/appIdentity.ts';
 import {
-  isReadingSessionV1, READING_SESSION_MAX_CLOCK_OFFSET_MS, toReadingSessionPayload, type ReadingSessionV1,
+  isReadingSessionV1, READING_SESSION_MAX_CLOCK_OFFSET_MS, sameReadingSessionPayload, toReadingSessionPayload, type ReadingSessionV1,
 } from '../lib/readingStatistics.ts';
+import { READING_STATISTICS_DAY_MAX_INTERVALS, type ReadingDayEntry } from '../lib/readingStatisticsDay';
 import { mergeReadingReportBooks, parseReadingReportBooks, summarizeReadingReportBooks, type ReadingReportBook } from '../lib/readingStatisticsReport.ts';
-import { selectReadingRollupTail } from '../lib/readingRollupBootstrap.ts';
+import { compareReadingUploadTimes, isReadingUploadTime, selectReadingRollupTail } from '../lib/readingRollupBootstrap.ts';
 import {
   computeReadingCalendarRollup, computeWeeklyReadingRollup, isReadingRollupHandoffWeekCount, parseReadingRollupMonday, READING_CALENDAR_WEEK_COUNT,
   mergeReadingFileRollups, parseReadingFileRollups, readReadingRollupDays, readingRollupWeekForDay, selectWeeklyReadingRollupInputs,
@@ -18,6 +19,7 @@ import {
   addReadingRollupPageWithoutChangingClosedWeek, closedReadingAllocationDigest, createReadingRollupCarry,
   rollupCoversHistoryStart, sortReadingRollupCarry, type ReadingRollupCarry,
 } from './readingRollupInputs.ts';
+import { readReadingDayWindowMemberRows, readingDaySource, readingDayWindowQuery } from './readingStatisticsDayStore';
 
 const hour = 3_600_000;
 const day = 24 * hour;
@@ -25,6 +27,11 @@ const week = 7 * day;
 const leaseDuration = 5 * 60_000;
 const dailySourceReads = 4_000;
 const pageSize = 100;
+const dayPageSize = 8;
+const daySpillThreshold = 192 * 1024;
+const daySpillChunkBytes = 384 * 1024;
+const maxDaySpillBytes = 32 * 1024 * 1024;
+const maxDaySpillChunks = 128;
 const maxJobPayloadBytes = 512 * 1024;
 const maxDecodedCarryBytes = 8 * 1024 * 1024;
 const enrollmentPageSize = 20;
@@ -43,6 +50,19 @@ const date = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 const stamp = (time: Timestamp) => [time.seconds, time.nanoseconds] as const;
 type Stamp = ReturnType<typeof stamp>;
 type Cursor = { time: Stamp; id: string };
+type DayCursor = { updated: Stamp; first: Stamp; id: string };
+type DayInputPosition = { firstReceivedAt: ReadingDayEntry['firstReceivedAt']; id: string };
+type DayScan = {
+  cursor: DayCursor | null; scanned: boolean; pending: ReadingDayEntry[]; legacyPending?: ReadingDayEntry[];
+  spillCount?: number; spillBytes?: number; appliedDay?: DayInputPosition;
+};
+type RollupSourceMetrics = {
+  legacyDocuments: number;
+  dayDocuments: number;
+  inputSessions: number;
+  inputIntervals: number;
+  quarantinedDayDocuments: number;
+};
 type WeekSummary = Pick<WeeklyReadingRollup, 'weekStart' | 'days'>;
 type Job = {
   firstWeek: string;
@@ -51,22 +71,32 @@ type Job = {
   closeAt: Stamp;
   cursor: Cursor | null;
   scanned: boolean;
+  dayScan?: DayScan;
   carry: ReadingRollupCarry;
   closedAllocation?: { sessionCount: number; digest: string };
   tailPolicy?: 1 | 2;
   handoffSourceThrough?: Stamp;
+  dayHandoffThrough?: Stamp;
   group: WeekSummary[];
   lastCalendarWeek: string | null;
   coversHistoryStart?: boolean;
   evidenceCompatible?: boolean;
   evidenceSeedThrough?: Stamp;
 };
-type PersistedJob = Omit<Job, 'carry'> & {
-  carry: ReadingRollupCarry | { encoding: 'gzip-v1'; data: string };
+type Compression = { encoding: 'gzip-v1'; data: string };
+type PersistedJob = Omit<Job, 'carry' | 'dayScan'> & {
+  carry: ReadingRollupCarry | Compression;
+  dayScan?: Omit<DayScan, 'pending' | 'legacyPending'> & {
+    pending: ReadingDayEntry[] | Compression;
+    legacyPending?: ReadingDayEntry[] | Compression;
+  };
 };
 
 type Lease = { uid: string; token: string };
-type RollupBootstrap = { cutoff: Timestamp | null; cursor: string | null; chunks: number; bytes: number; scanned: boolean };
+type RollupBootstrap = {
+  cutoff: Timestamp | null; cursor: string | null; chunks: number; bytes: number; scanned: boolean;
+  dayCursor?: DayCursor | null; daysScanned?: boolean;
+};
 type ListRollupAccounts = (limit: number, pageToken?: string) => Promise<{
   users: { uid: string; disabled: boolean }[]; pageToken?: string;
 }>;
@@ -145,31 +175,47 @@ function jobPayload(job: Job) {
   // Keep small checkpoints readable by older writers, including after rollover.
   if (Buffer.byteLength(json) <= maxJobPayloadBytes) return json;
 
-  const carry = Buffer.from(JSON.stringify(job.carry));
-  if (carry.length > maxDecodedCarryBytes) throw new InvalidRollupInput('rollup-payload-too-large');
-  return payload({ ...job, carry: { encoding: 'gzip-v1', data: gzipSync(carry).toString('base64') } }, maxJobPayloadBytes / 1024);
+  const compress = (value: unknown): Compression => {
+    const encoded = Buffer.from(JSON.stringify(value));
+    if (encoded.length > maxDecodedCarryBytes) throw new InvalidRollupInput('rollup-payload-too-large');
+    return { encoding: 'gzip-v1', data: gzipSync(encoded).toString('base64') };
+  };
+  return payload({
+    ...job, carry: compress(job.carry),
+    ...(job.dayScan && { dayScan: { ...job.dayScan, pending: compress(job.dayScan.pending),
+      legacyPending: job.dayScan.legacyPending?.length ? compress(job.dayScan.legacyPending) : undefined } }),
+  }, maxJobPayloadBytes / 1024);
+}
+
+function decodeJobField<T>(value: T | Compression): T {
+  if (!value || typeof value !== 'object' || !('encoding' in value)) return value as T;
+  if (value.encoding !== 'gzip-v1' || !('data' in value) || typeof value.data !== 'string') throw new Error();
+  const json = gunzipSync(Buffer.from(value.data, 'base64'), { maxOutputLength: maxDecodedCarryBytes });
+  return JSON.parse(json.toString('utf8')) as T;
 }
 
 function readJobPayload(payload: string): Job {
   try {
     if (typeof payload !== 'string' || Buffer.byteLength(payload) > maxJobPayloadBytes) throw new Error();
     const job = JSON.parse(payload) as PersistedJob;
-    const saved = job.carry;
-    let carry: ReadingRollupCarry;
-    if ('encoding' in saved) {
-      if (saved.encoding !== 'gzip-v1' || typeof saved.data !== 'string') throw new Error();
-      const json = gunzipSync(Buffer.from(saved.data, 'base64'), { maxOutputLength: maxDecodedCarryBytes });
-      carry = JSON.parse(json.toString('utf8')) as ReadingRollupCarry;
-    } else carry = saved;
+    const carry = decodeJobField(job.carry);
+    const dayScan = job.dayScan && { ...job.dayScan, pending: decodeJobField(job.dayScan.pending),
+      legacyPending: decodeJobField(job.dayScan.legacyPending) };
     const nextWeek = parseReadingRollupMonday(job.nextWeek);
     if (parseReadingRollupMonday(job.firstWeek) > nextWeek
       || !Number.isSafeInteger(carry.sampleFloor) || !Array.isArray(carry.sessions) || !carry.sessions.every(isReadingSessionV1)
       || !Array.isArray(job.group) || job.group.length >= READING_CALENDAR_WEEK_COUNT
       || !isRollupStamp(job.sourceAfter) || !isRollupStamp(job.closeAt)
       || (job.handoffSourceThrough !== undefined && !isRollupStamp(job.handoffSourceThrough))
+      || (job.dayHandoffThrough !== undefined && !isRollupStamp(job.dayHandoffThrough))
       || (job.evidenceSeedThrough !== undefined && !isRollupStamp(job.evidenceSeedThrough))
       || typeof job.scanned !== 'boolean'
       || (job.cursor !== null && (!isRollupStamp(job.cursor?.time) || typeof job.cursor.id !== 'string'))
+      || (dayScan !== undefined && (typeof dayScan.scanned !== 'boolean' || !isDayCursor(dayScan.cursor)
+        || !validReadingDayRows(dayScan.pending)
+        || !validDaySpill(dayScan)
+        || (dayScan.legacyPending !== undefined && (!validReadingDayRows(dayScan.legacyPending)
+          || dayScan.legacyPending.length > pageSize))))
       || (job.closedAllocation !== undefined && (!Number.isSafeInteger(job.closedAllocation?.sessionCount)
         || job.closedAllocation.sessionCount < 0 || job.closedAllocation.sessionCount > carry.sessions.length
         || typeof job.closedAllocation.digest !== 'string'))) throw new Error();
@@ -179,10 +225,171 @@ function readJobPayload(payload: string): Job {
       if (item.weekStart !== date(start)) throw new Error();
       return { weekStart: item.weekStart, days: readReadingRollupDays(item.days, start, start + 6 * day) };
     });
-    return { ...job, carry, group };
+    return { ...job, carry, group, dayScan };
   } catch {
     throw new InvalidRollupInput('invalid-rollup-checkpoint');
   }
+}
+
+function isDayCursor(value: DayCursor | null) {
+  return value === null || !!value && isRollupStamp(value.updated) && isRollupStamp(value.first) && typeof value.id === 'string';
+}
+
+function validReadingDayRows(value: unknown): value is ReadingDayEntry[] {
+  return Array.isArray(value) && value.every((entry) =>
+    entry && isReadingSessionV1(entry.session) && isReadingUploadTime(entry.firstReceivedAt));
+}
+
+function validDaySpill(scan: Pick<DayScan, 'spillCount' | 'spillBytes' | 'appliedDay'>) {
+  if (scan.spillCount === undefined) return scan.spillBytes === undefined && scan.appliedDay === undefined;
+  return Number.isSafeInteger(scan.spillCount) && scan.spillCount > 0 && scan.spillCount <= maxDaySpillChunks
+    && typeof scan.spillBytes === 'number' && Number.isSafeInteger(scan.spillBytes)
+    && scan.spillBytes > 0 && scan.spillBytes <= maxDaySpillBytes
+    && (scan.appliedDay === undefined || typeof scan.appliedDay.id === 'string' && isReadingUploadTime(scan.appliedDay.firstReceivedAt));
+}
+
+const dayCursor = (doc: QueryDocumentSnapshot): DayCursor => ({
+  updated: stamp(doc.get('lastReceivedAt')), first: stamp(doc.get('firstReceivedAt')), id: doc.id,
+});
+
+function getRollupDayPage(
+  db: Firestore, uid: string, after: Timestamp, through: Timestamp, cursor: DayCursor | null | undefined, limit: number,
+) {
+  const query = readingDayWindowQuery(db, uid, after, through);
+  return (cursor ? query.startAfter(new Timestamp(...cursor.updated), new Timestamp(...cursor.first), cursor.id) : query).limit(limit).get();
+}
+
+function rollupDayRows(doc: QueryDocumentSnapshot, after: Timestamp | undefined, through: Timestamp, metrics: RollupSourceMetrics) {
+  try { return readReadingDayWindowMemberRows(doc, after, through); }
+  catch (error) {
+    if (!(error instanceof TypeError || error instanceof SyntaxError || error instanceof RangeError)) throw error;
+    metrics.quarantinedDayDocuments++;
+    return [];
+  }
+}
+
+function compareReceivedRows(left: ReadingDayEntry, right: ReadingDayEntry) {
+  return compareReadingUploadTimes(left.firstReceivedAt, right.firstReceivedAt)
+    || Buffer.compare(Buffer.from(left.session.sessionId), Buffer.from(right.session.sessionId));
+}
+
+function takeRollupInputRows(job: Job, scan: DayScan, spilled: ReadingDayEntry[] | null) {
+  const rows: ReadingDayEntry[] = [];
+  const legacy = scan.legacyPending ?? [];
+  const dayRows = spilled ?? scan.pending;
+  const through = job.cursor && new Timestamp(...job.cursor.time);
+  let dayIndex = 0;
+  let legacyIndex = 0;
+  let intervals = 0;
+  while (rows.length < pageSize) {
+    const day = dayRows[dayIndex];
+    const original = legacy[legacyIndex];
+    const dayReady = day && (job.scanned || through && job.cursor
+      && (compareReadingUploadTimes(day.firstReceivedAt, through)
+        || Buffer.compare(Buffer.from(day.session.sessionId), Buffer.from(job.cursor.id))) <= 0);
+    const useDay = dayReady && (!original || compareReceivedRows(day, original) < 0);
+    const row = useDay ? day : original;
+    if (!row) break;
+    intervals += row.session.activeIntervals?.length ?? 1;
+    if (intervals > READING_STATISTICS_DAY_MAX_INTERVALS) break;
+    rows.push(row);
+    if (useDay) dayIndex++;
+    else legacyIndex++;
+  }
+  if (spilled && dayIndex) {
+    const last = dayRows[dayIndex - 1];
+    scan.appliedDay = { firstReceivedAt: last.firstReceivedAt, id: last.session.sessionId };
+  }
+  dayRows.splice(0, dayIndex);
+  if (scan.legacyPending) scan.legacyPending.splice(0, legacyIndex);
+  return rows;
+}
+
+function collectDayScanPage(
+  scan: DayScan, docs: readonly QueryDocumentSnapshot[], after: Timestamp, through: Timestamp, limit: number, metrics: RollupSourceMetrics,
+): DayScan {
+  const pending = new Map(scan.pending.map((entry) => [entry.session.sessionId, entry]));
+  for (const doc of docs) {
+    for (const entry of rollupDayRows(doc, after, through, metrics)) {
+      const previous = pending.get(entry.session.sessionId);
+      if (previous && (!sameReadingSessionPayload(previous.session, entry.session)
+        || compareReadingUploadTimes(previous.firstReceivedAt, entry.firstReceivedAt))) {
+        throw new InvalidRollupInput('conflicting-day-input');
+      }
+      pending.set(entry.session.sessionId, entry);
+    }
+  }
+  const last = docs.at(-1);
+  const scanned = docs.length < limit;
+  const entries = [...pending.values()];
+  if (scanned) entries.sort(compareReceivedRows);
+  return { ...scan, cursor: last ? dayCursor(last) : scan.cursor, scanned, pending: entries };
+}
+
+const daySpillRef = (ref: DocumentReference, week: string, index: number) => (
+  ref.collection('readingStatsRollupDayChunksV2').doc(`${week}_${String(index).padStart(4, '0')}`)
+);
+
+function spillDayInputs(scan: DayScan) {
+  if (Buffer.byteLength(JSON.stringify(scan.pending)) <= daySpillThreshold) return [];
+  const chunks: string[] = [];
+  let rows: string[] = [];
+  let bytes = 2;
+  for (const row of scan.pending) {
+    const encoded = JSON.stringify(row);
+    const size = Buffer.byteLength(encoded) + 1;
+    if (bytes + size > daySpillChunkBytes && rows.length) {
+      chunks.push(`[${rows.join(',')}]`);
+      rows = [];
+      bytes = 2;
+    }
+    rows.push(encoded);
+    bytes += size;
+  }
+  if (rows.length) chunks.push(`[${rows.join(',')}]`);
+  scan.spillCount = (scan.spillCount ?? 0) + chunks.length;
+  scan.spillBytes = (scan.spillBytes ?? 0) + chunks.reduce((sum, chunk) => sum + Buffer.byteLength(chunk), 0);
+  if (!validDaySpill(scan)) throw new InvalidRollupInput('day-inputs-too-large');
+  scan.pending = [];
+  return chunks;
+}
+
+async function readSpilledDayInputs(db: Firestore, ref: DocumentReference, job: Job, scan: DayScan, stopAt: number, now: () => number) {
+  const entries = new Map<string, ReadingDayEntry>();
+  const applied = scan.appliedDay;
+  const keep = (entry: ReadingDayEntry) => {
+    if (applied && (compareReadingUploadTimes(entry.firstReceivedAt, applied.firstReceivedAt)
+      || Buffer.compare(Buffer.from(entry.session.sessionId), Buffer.from(applied.id))) <= 0) return;
+    const previous = entries.get(entry.session.sessionId);
+    if (previous && (!sameReadingSessionPayload(previous.session, entry.session)
+      || compareReadingUploadTimes(previous.firstReceivedAt, entry.firstReceivedAt))) {
+      throw new InvalidRollupInput('conflicting-day-input');
+    }
+    entries.set(entry.session.sessionId, entry);
+  };
+  for (const row of scan.pending) keep(row);
+  const count = scan.spillCount ?? 0;
+  let bytes = 0;
+  for (let from = 0; from < count; from += 16) {
+    if (now() >= stopAt) return null;
+    const docs = await db.getAll(...Array.from({ length: Math.min(count - from, 16) }, (_, i) => daySpillRef(ref, job.nextWeek, from + i)));
+    for (const doc of docs) {
+      try {
+        const payload: unknown = doc.get('payload');
+        if (typeof payload !== 'string') throw new Error();
+        bytes += Buffer.byteLength(payload);
+        if (bytes > maxDaySpillBytes || Buffer.byteLength(payload) > daySpillChunkBytes) throw new Error();
+        const rows: unknown = JSON.parse(payload);
+        if (!validReadingDayRows(rows)) throw new Error();
+        for (const row of rows) keep(row);
+      } catch (error) {
+        if (error instanceof InvalidRollupInput) throw error;
+        throw new InvalidRollupInput('invalid-day-input-page');
+      }
+    }
+  }
+  if (bytes !== scan.spillBytes) throw new InvalidRollupInput('invalid-day-input-size');
+  return [...entries.values()].sort(compareReceivedRows);
 }
 
 function isRollupStamp(value: unknown): value is Stamp {
@@ -197,17 +404,26 @@ function validateBootstrapCheckpoint(value: RollupBootstrap) {
     || (value.cursor !== null && typeof value.cursor !== 'string')
     || !Number.isSafeInteger(value.chunks) || value.chunks < 0 || value.chunks > maxBootstrapChunks
     || !Number.isSafeInteger(value.bytes) || value.bytes < 0 || value.bytes > maxBootstrapInputBytes
-    || typeof value.scanned !== 'boolean' || (value.chunks > 0 && !value.cutoff)) {
+    || typeof value.scanned !== 'boolean' || (value.chunks > 0 && !value.cutoff)
+    || (value.dayCursor !== undefined && !isDayCursor(value.dayCursor))
+    || (value.daysScanned !== undefined && typeof value.daysScanned !== 'boolean')) {
     throw new InvalidRollupInput('invalid-bootstrap-checkpoint');
   }
 }
+
+type BootstrapInput = { session: ReadingSessionV1; firstReceivedAt?: ReadingDayEntry['firstReceivedAt'] };
 
 function readBootstrapChunk(value: unknown) {
   try {
     if (typeof value !== 'string' || Buffer.byteLength(value) > bootstrapChunkBytes) throw new Error();
     const rows: unknown = JSON.parse(value);
-    if (!Array.isArray(rows) || !rows.every(isReadingSessionV1)) throw new Error();
-    return rows as ReadingSessionV1[];
+    if (!Array.isArray(rows)) throw new Error();
+    return rows.map((row): BootstrapInput => {
+      if (isReadingSessionV1(row)) return { session: row };
+      if (row && isReadingSessionV1(row.session)
+        && (row.firstReceivedAt === undefined || isReadingUploadTime(row.firstReceivedAt))) return row;
+      throw new Error();
+    });
   } catch {
     throw new InvalidRollupInput('invalid-bootstrap-page');
   }
@@ -252,6 +468,7 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
   pilotTuesday: boolean;
   coversHistoryStart?: boolean;
   evidenceCompatible?: boolean;
+  coversDaySource?: boolean;
 }, now = Date.now, bootstrapChunks?: number) {
   const { nextWeek, sourceCutoff, carry, pilotTuesday } = seed;
   const staged = seed.weeks.map(({ weekStart, days }) => ({ weekStart, days }));
@@ -284,6 +501,7 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
   const seedPayload = JSON.stringify(job);
   const proposed = jobPayload({ ...job,
     handoffSourceThrough: stamp(sourceCutoff),
+    ...(seed.coversDaySource ? { dayHandoffThrough: stamp(sourceCutoff) } : {}),
     ...(seed.coversHistoryStart ? { coversHistoryStart: true } : {}),
     ...(seed.evidenceCompatible ? { evidenceCompatible: true, evidenceSeedThrough: stamp(sourceCutoff) } : {}),
   });
@@ -298,7 +516,9 @@ export async function stageReadingRollupHandoff(db: Firestore, lease: Lease, see
     const existing = await tx.get(ref);
     if (bootstrapChunks !== undefined) {
       const bootstrap: RollupBootstrap | undefined = existing.get('bootstrap');
-      if (!bootstrap?.scanned || bootstrap.chunks !== bootstrapChunks) throw new Error('Reading rollup bootstrap changed.');
+      if (!bootstrap?.scanned || !bootstrap.daysScanned || bootstrap.chunks !== bootstrapChunks) {
+        throw new Error('Reading rollup bootstrap changed.');
+      }
       // Firestore limits the size of the atomic first publication's staged writes.
       const stagedBytes = Buffer.byteLength(proposed) + Buffer.byteLength(files ?? '')
         + weeks.reduce((bytes, item) => bytes + Buffer.byteLength(item.payload), 0)
@@ -359,9 +579,19 @@ async function enrollReadingRollupAccounts(db: Firestore, list: ListRollupAccoun
     ? await db.runTransaction((tx) => reserveSourceReads(db, tx, candidates.length, now()))
     : 0;
   if (now() >= stopAt) return 0;
-  const found = (await Promise.all(candidates.slice(0, allowed).map(async ({ ref }) =>
-    (await sourceRef(db, ref.id).limit(1).select().get()).empty ? null : ref,
-  ))).filter((ref) => ref !== null);
+  const searched = await Promise.all(candidates.slice(0, allowed).map(async ({ ref }) => ({
+    ref, exists: !(await sourceRef(db, ref.id).limit(1).select().get()).empty,
+  })));
+  const found = searched.filter(({ exists }) => exists).map(({ ref }) => ref);
+  const withoutSessions = searched.filter(({ exists }) => !exists);
+  const dayAllowed = withoutSessions.length
+    ? await db.runTransaction((tx) => reserveSourceReads(db, tx, withoutSessions.length, now()))
+    : 0;
+  if (now() >= stopAt) return 0;
+  const newDayAccounts = await Promise.all(withoutSessions.slice(0, dayAllowed).map(async ({ ref }) =>
+    (await readingDaySource(db, ref.id).limit(1).select().get()).empty ? null : ref,
+  ));
+  found.push(...newDayAccounts.filter((ref) => ref !== null));
   return db.runTransaction(async (tx) => {
     const snapshot = await tx.get(state);
     if (snapshot.get('pageToken') !== cursor || snapshot.get('scannedDay') === today) return 0;
@@ -371,7 +601,7 @@ async function enrollReadingRollupAccounts(db: Firestore, list: ListRollupAccoun
       const bootstrap: RollupBootstrap = { cutoff: null, cursor: null, chunks: 0, bytes: 0, scanned: false };
       tx.create(ref, { bootstrap, bootstrapDueAt: now() });
     }
-    if (allowed === candidates.length) {
+    if (allowed === candidates.length && dayAllowed === withoutSessions.length) {
       tx.set(state, { scannedDay: today, ...(pageToken ? { pageToken } : {}) });
     }
     return newJobs.length;
@@ -382,50 +612,50 @@ const bootstrapChunk = (ref: DocumentReference, index: number) => (
   ref.collection('readingStatsRollupBootstrapChunksV1').doc(String(index))
 );
 
-function encodeBootstrapPage(documents: readonly QueryDocumentSnapshot[], cutoff: Timestamp) {
+function encodeBootstrapPage(documents: readonly QueryDocumentSnapshot[], sessions: (doc: QueryDocumentSnapshot) => BootstrapInput[]) {
   const chunks: string[] = [];
   let rows: string[] = [];
   let size = 2;
   let examined = 0;
   let pageBytes = 0;
   for (const doc of documents) {
-    const value = doc.data();
-    if (doc.createTime > cutoff || doc.updateTime > cutoff || !isReadingSessionV1(value) || value.sessionId !== doc.id) {
-      examined++;
-      continue;
-    }
-    const row = JSON.stringify(toReadingSessionPayload(value));
-    const bytes = Buffer.byteLength(row) + 1;
-    if (bytes + 2 > bootstrapChunkBytes) {
-      examined++;
-      continue;
-    }
+    const encoded = sessions(doc).map((session) => {
+      const row = JSON.stringify(session);
+      return { row, bytes: Buffer.byteLength(row) + 1 };
+    }).filter(({ bytes }) => bytes + 2 <= bootstrapChunkBytes);
+    const documentBytes = encoded.reduce((total, { bytes }) => total + bytes, 0);
     // Leave a Firestore request-size margin for chunk boundaries and metadata.
-    if (pageBytes + bytes > maxBootstrapPageBytes) break;
+    if (pageBytes + documentBytes > maxBootstrapPageBytes) break;
     examined++;
-    pageBytes += bytes;
-    if (size + bytes > bootstrapChunkBytes) {
-      chunks.push(`[${rows.join(',')}]`);
-      rows = [];
-      size = 2;
+    pageBytes += documentBytes;
+    for (const { row, bytes } of encoded) {
+      if (size + bytes > bootstrapChunkBytes) {
+        chunks.push(`[${rows.join(',')}]`);
+        rows = [];
+        size = 2;
+      }
+      rows.push(row);
+      size += bytes;
     }
-    rows.push(row);
-    size += bytes;
   }
   if (rows.length) chunks.push(`[${rows.join(',')}]`);
   return { chunks, examined };
 }
 
-function prepareAutomaticHandoff(sessions: ReadingSessionV1[], sourceCutoff: Timestamp) {
+function prepareAutomaticHandoff(rows: BootstrapInput[], sourceCutoff: Timestamp) {
   const cutoff = sourceCutoff.toMillis();
   const latestClosedWeek = readingRollupWeekForDay(date(cutoff - 8 * day - 9 * hour))!;
-  const earliest = sessions.reduce((min, session) => session.completionRoundNumber !== undefined ? min : Math.min(min,
+  const earliest = rows.reduce((min, { session }) => session.completionRoundNumber !== undefined ? min : Math.min(min,
     session.startedAtClient - session.timezoneOffsetMinutes * 60_000 - READING_SESSION_MAX_CLOCK_OFFSET_MS), cutoff);
   const firstReadingWeek = readingRollupWeekForDay(date(Math.max(0, earliest)))!;
   // A new account can leave the first unclosed week for Cron, but never stage it.
   const nextWeek = firstReadingWeek > latestClosedWeek
     ? date(parseReadingRollupMonday(latestClosedWeek) + week)
     : latestClosedWeek;
+  const close = Timestamp.fromMillis(weeklyClose(nextWeek));
+  const seedCutoff = sourceCutoff < close ? sourceCutoff : close;
+  const sessions = rows.filter(({ firstReceivedAt }) => !firstReceivedAt
+    || compareReadingUploadTimes(firstReceivedAt, seedCutoff) <= 0).map(({ session }) => session);
   const end = parseReadingRollupMonday(nextWeek);
   const span = Math.max(1, (end - parseReadingRollupMonday(firstReadingWeek)) / week + 1);
   const count = READING_CALENDAR_WEEK_COUNT * Math.ceil(span / READING_CALENDAR_WEEK_COUNT) - 1;
@@ -438,55 +668,77 @@ function prepareAutomaticHandoff(sessions: ReadingSessionV1[], sourceCutoff: Tim
     return computeWeeklyReadingRollup(selectWeeklyReadingRollupInputs(sessions, start), start);
   });
   return {
-    weeks, nextWeek, sourceCutoff, carry: createReadingRollupCarry(sessions, nextWeek), pilotTuesday: false,
+    weeks, nextWeek, sourceCutoff: seedCutoff, carry: createReadingRollupCarry(sessions, nextWeek), pilotTuesday: false,
     coversHistoryStart: rollupCoversHistoryStart(sessions, firstWeek),
-    evidenceCompatible: sessions.every((session) => session.completionRoundNumber === undefined),
+    coversDaySource: true, evidenceCompatible: sessions.every((session) => session.completionRoundNumber === undefined),
   };
 }
 
 async function prepareReadingRollup(db: Firestore, lease: Lease, ref: DocumentReference, progress: RollupBootstrap,
-  stopAt: number, now: () => number, maxPages: number) {
+  stopAt: number, now: () => number, maxPages: number, metrics: RollupSourceMetrics) {
   validateBootstrapCheckpoint(progress);
   let bootstrap = progress;
   const ordered = sourceRef(db, lease.uid).orderBy(FieldPath.documentId());
-  for (let pages = 0; !bootstrap.scanned && now() < stopAt && pages < maxPages; pages++) {
-    const limit = await reserveReadingRollupReads(db, lease, pageSize, now);
+  for (let pages = 0; !bootstrap.daysScanned && now() < stopAt && pages < maxPages; pages++) {
+    const scanDays = bootstrap.scanned;
+    const limit = await reserveReadingRollupReads(db, lease, scanDays ? dayPageSize : pageSize, now);
     if (!limit) return 'budget';
-    const page = await (bootstrap.cursor ? ordered.startAfter(bootstrap.cursor) : ordered).limit(limit).get();
+    const page = scanDays
+      ? await getRollupDayPage(db, lease.uid, Timestamp.fromMillis(0), bootstrap.cutoff!, bootstrap.dayCursor, limit)
+      : await (bootstrap.cursor ? ordered.startAfter(bootstrap.cursor) : ordered).limit(limit).get();
     const cutoff = bootstrap.cutoff ?? page.readTime;
-    const { chunks, examined } = encodeBootstrapPage(page.docs, cutoff);
+    metrics[scanDays ? 'dayDocuments' : 'legacyDocuments'] += page.size;
+    const { chunks, examined } = encodeBootstrapPage(page.docs, (doc) => {
+      if (scanDays) return rollupDayRows(doc, undefined, cutoff, metrics);
+      const value = doc.data();
+      const received = value.uploadedAtServer;
+      if (doc.createTime > cutoff || doc.updateTime > cutoff || !isReadingSessionV1(value) || value.sessionId !== doc.id) return [];
+      const session = toReadingSessionPayload(value);
+      // Old imports have no receipt and cannot be replayed by the timestamp-based tail.
+      return received instanceof Timestamp
+        ? [{ session, firstReceivedAt: { seconds: received.seconds, nanoseconds: received.nanoseconds } }]
+        : [{ session }];
+    });
     const start = bootstrap.chunks;
     const bytes = bootstrap.bytes + chunks.reduce((total, chunk) => total + Buffer.byteLength(chunk), 0);
     if (start + chunks.length > maxBootstrapChunks || bytes > maxBootstrapInputBytes) {
       throw new InvalidRollupInput('bootstrap-source-too-large');
     }
-    bootstrap = {
-      cutoff, cursor: page.docs[examined - 1]?.id ?? bootstrap.cursor,
-      chunks: start + chunks.length, bytes, scanned: examined === page.size && page.size < limit,
-    };
+    const last = page.docs[examined - 1];
+    const scanned = examined === page.size && page.size < limit;
+    bootstrap = scanDays
+      ? { ...bootstrap, chunks: start + chunks.length, bytes, daysScanned: scanned,
+        dayCursor: last ? dayCursor(last) : bootstrap.dayCursor ?? null }
+      : { ...bootstrap, cutoff, cursor: last?.id ?? bootstrap.cursor, chunks: start + chunks.length, bytes, scanned };
     await saveRollupJob(db, lease, now, (tx) => {
       chunks.forEach((payload, index) => tx.create(bootstrapChunk(ref, start + index), { payload }));
       tx.update(ref, { bootstrap });
     });
   }
-  if (!bootstrap.scanned || now() >= stopAt) return 'pending';
+  if (!bootstrap.daysScanned || now() >= stopAt) return 'pending';
   if (!bootstrap.chunks) {
     // The discovered source can be removed administratively before enrollment starts.
     await saveRollupJob(db, lease, now, (tx) => tx.delete(ref));
     return 'empty';
   }
-  const sessions: ReadingSessionV1[] = [];
+  const sessions = new Map<string, ReturnType<typeof readBootstrapChunk>[number]>();
   for (let start = 0; start < bootstrap.chunks; start += 20) {
     if (now() >= stopAt) return 'pending';
     const count = Math.min(20, bootstrap.chunks - start);
     const pages = await db.getAll(...Array.from({ length: count }, (_, i) => bootstrapChunk(ref, start + i)));
     for (const page of pages) {
       if (!page.exists) throw new InvalidRollupInput('missing-bootstrap-page');
-      for (const row of readBootstrapChunk(page.get('payload'))) sessions.push(row);
+      for (const row of readBootstrapChunk(page.get('payload'))) {
+        const existing = sessions.get(row.session.sessionId);
+        if (existing && !sameReadingSessionPayload(existing.session, row.session)) throw new InvalidRollupInput('conflicting-bootstrap-input');
+        sessions.set(row.session.sessionId, row);
+      }
     }
   }
   if (now() >= stopAt) return 'pending';
-  await stageReadingRollupHandoff(db, lease, prepareAutomaticHandoff(sessions, bootstrap.cutoff!), now, bootstrap.chunks);
+  metrics.inputSessions += sessions.size;
+  for (const { session } of sessions.values()) metrics.inputIntervals += session.activeIntervals?.length ?? 1;
+  await stageReadingRollupHandoff(db, lease, prepareAutomaticHandoff([...sessions.values()], bootstrap.cutoff!), now, bootstrap.chunks);
   return 'prepared';
 }
 
@@ -503,13 +755,14 @@ async function clearReadingRollupBootstrap(db: Firestore, lease: Lease, ref: Doc
   }
 }
 
-async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, now: () => number, maxPages: number) {
+async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, now: () => number, maxPages: number,
+  metrics: RollupSourceMetrics) {
   const ref = jobs(db).doc(lease.uid);
   const snapshot = await ref.get();
   if (snapshot.get('blocked') || !((snapshot.get('dueAt') ?? snapshot.get('bootstrapDueAt')) <= now())) return 'skipped';
   try {
     const bootstrap: RollupBootstrap | undefined = snapshot.get('bootstrap');
-    if (bootstrap !== undefined) return await prepareReadingRollup(db, lease, ref, bootstrap, stopAt, now, maxPages);
+    if (bootstrap !== undefined) return await prepareReadingRollup(db, lease, ref, bootstrap, stopAt, now, maxPages, metrics);
     const saved = snapshot.get('payload') as string;
     let job = readJobPayload(saved);
     if (new Timestamp(...job.closeAt).valueOf() > Timestamp.fromMillis(now()).valueOf()) return 'skipped';
@@ -545,38 +798,85 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     const point = { lastDay: date(openDay - day), sampleFloor: job.carry.sampleFloor };
     const handoffStamp = job.handoffSourceThrough ?? job.evidenceSeedThrough;
     const handoffCutoff = handoffStamp && new Timestamp(...handoffStamp);
-    for (let pages = 0; !job.scanned && now() < stopAt && pages < maxPages; pages++) {
-      const limit = await reserveReadingRollupReads(db, lease, pageSize, now);
-      if (limit === 0) return 'budget';
-      const ordered = source.where('uploadedAtServer', '>', new Timestamp(...job.sourceAfter))
-        .where('uploadedAtServer', '<=', new Timestamp(...job.closeAt))
-        .orderBy('uploadedAtServer').orderBy(FieldPath.documentId());
-      const page = await (job.cursor ? ordered.startAfter(new Timestamp(...job.cursor.time), job.cursor.id) : ordered).limit(limit).get();
-      const parsed = page.docs.flatMap((doc) => {
-        const data = doc.data();
-        const uploadedAt = data.uploadedAtServer;
-        return uploadedAt instanceof Timestamp && isReadingSessionV1(data) && data.sessionId === doc.id
-          ? [{ doc, session: toReadingSessionPayload(data) }]
-          : [];
+    const through = new Timestamp(...job.closeAt);
+    const after = new Timestamp(...job.sourceAfter);
+    const dayAfter = job.dayHandoffThrough ? new Timestamp(...job.dayHandoffThrough) : after;
+    job.dayScan ??= { cursor: null, scanned: false, pending: [] };
+    let spilled: ReadingDayEntry[] | null = null;
+    const complete = () => job.scanned && job.dayScan?.scanned
+      && (spilled?.length ?? (job.dayScan.spillCount || job.dayScan.pending.length)) === 0 && !job.dayScan.legacyPending?.length;
+    const saveCheckpoint = (spill: string[] = [], spillStart = 0) => {
+      const checkpoint = jobPayload(job);
+      return saveRollupJob(db, lease, now, (tx) => {
+        spill.forEach((payload, offset) => tx.create(daySpillRef(ref, job.nextWeek, spillStart + offset), { payload }));
+        tx.update(ref, { payload: checkpoint });
       });
+    };
+    for (let pages = 0; !complete() && now() < stopAt && pages < maxPages; pages++) {
+      const days: DayScan = job.dayScan;
+      if (!days.scanned) {
+        const limit = await reserveReadingRollupReads(db, lease, dayPageSize, now);
+        if (!limit) return 'budget';
+        const page = await getRollupDayPage(db, lease.uid, dayAfter, through, days.cursor, limit);
+        metrics.dayDocuments += page.size;
+        job.dayScan = collectDayScanPage(days, page.docs, dayAfter, through, limit, metrics);
+        // An existing in-progress checkpoint may have consumed only v1.
+        if (job.dayScan.scanned && (job.dayScan.pending.length || job.dayScan.spillCount) && (job.cursor || job.scanned)) {
+          job.carry = { ...job.carry, sessions: job.carry.sessions.slice(0, protectedCount) };
+          job.scanned = false;
+          job.cursor = null;
+        }
+        const start = job.dayScan.spillCount ?? 0;
+        await saveCheckpoint(spillDayInputs(job.dayScan), start);
+        continue;
+      }
+      if (days.spillCount && spilled === null) {
+        spilled = await readSpilledDayInputs(db, ref, job, days, stopAt, now);
+        if (!spilled) return 'pending';
+      }
+      let rows = takeRollupInputRows(job, days, spilled);
+      if (!rows.length && !job.scanned) {
+        const limit = await reserveReadingRollupReads(db, lease, pageSize, now);
+        if (!limit) return 'budget';
+        const ordered = source.where('uploadedAtServer', '>', after).where('uploadedAtServer', '<=', through)
+          .orderBy('uploadedAtServer').orderBy(FieldPath.documentId());
+        const page = await (job.cursor ? ordered.startAfter(new Timestamp(...job.cursor.time), job.cursor.id) : ordered).limit(limit).get();
+        metrics.legacyDocuments += page.size;
+        days.legacyPending = [];
+        for (const doc of page.docs) {
+          const data = doc.data();
+          const receivedAt = data.uploadedAtServer;
+          if (receivedAt instanceof Timestamp && isReadingSessionV1(data) && data.sessionId === doc.id
+            && (!handoffCutoff || doc.createTime > handoffCutoff || doc.updateTime > handoffCutoff)) {
+            days.legacyPending.push({
+              firstReceivedAt: { seconds: receivedAt.seconds, nanoseconds: receivedAt.nanoseconds },
+              session: toReadingSessionPayload(data),
+            });
+          }
+        }
+        const last = page.docs.at(-1);
+        if (last) {
+          const at = last.get('uploadedAtServer') as Timestamp;
+          job.cursor = { time: stamp(at), id: last.id };
+        }
+        job.scanned = page.size < limit;
+        rows = takeRollupInputRows(job, days, spilled);
+      }
       const retainedIds = new Set(job.carry.sessions.map(({ sessionId }) => sessionId));
-      const incoming = parsed.filter(({ doc, session }) => !retainedIds.has(session.sessionId)
-        && (!handoffCutoff || doc.createTime > handoffCutoff || doc.updateTime > handoffCutoff)).map(({ session }) => session);
-      const eligible = selectReadingRollupTail(point, job.carry.sessions, incoming);
+      metrics.inputSessions += rows.length;
+      for (const { session } of rows) metrics.inputIntervals += session.activeIntervals?.length ?? 1;
       try {
+        const incoming = rows.map(({ session }) => session).filter(({ sessionId }) => !retainedIds.has(sessionId));
+        const eligible = selectReadingRollupTail(point, job.carry.sessions, incoming);
         job.carry = addReadingRollupPageWithoutChangingClosedWeek(job.carry, eligible, job.nextWeek, protectedIds, digest);
       }
       catch (error) {
         if (error instanceof RangeError) throw new InvalidRollupInput('unsupported-source-boundary');
         throw error;
       }
-      const last = page.docs.at(-1);
-      if (last) job.cursor = { time: stamp(last.get('uploadedAtServer')), id: last.id };
-      job.scanned = page.size < limit;
-      const checkpoint = jobPayload(job);
-      await saveRollupJob(db, lease, now, (tx) => tx.update(ref, { payload: checkpoint }));
+      await saveCheckpoint();
     }
-    if (!job.scanned || now() >= stopAt) return 'pending';
+    if (!complete() || now() >= stopAt) return 'pending';
 
     const closed = job.nextWeek;
     const carry = sortReadingRollupCarry(job.carry);
@@ -591,8 +891,11 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     const nextCloseTime = weeklyClose(nextWeek);
     const previousClose = new Timestamp(...job.closeAt);
     const nextClose = Timestamp.fromMillis(nextCloseTime);
+    const spills = job.dayScan?.spillCount ?? 0;
     delete job.evidenceSeedThrough;
     delete job.handoffSourceThrough;
+    delete job.dayHandoffThrough;
+    delete job.dayScan;
     delete job.closedAllocation;
     job = {
       ...job, nextWeek, sourceAfter: job.closeAt, cursor: null, scanned: false,
@@ -611,6 +914,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
       : null;
     // Readers only ever see a manifest committed with its complete artifacts.
     await saveRollupJob(db, lease, now, (tx) => {
+      for (let index = 0; index < spills; index++) tx.delete(daySpillRef(ref, closed, index));
       tx.create(ref.collection('readingStatsRollupWeeksV1').doc(closed), { payload: detailPayload });
       if (calendarPayload) tx.create(ref.collection('readingStatsRollupCalendarsV1').doc(closed), { payload: calendarPayload });
       if (files) tx.set(fileTotalsRef(ref), { throughWeek: closed, payload: files });
@@ -636,7 +940,9 @@ export async function runReadingRollupCron(db: Firestore, { now = Date.now, runF
   now?: () => number;
   runForMs?: number;
   listAccounts?: ListRollupAccounts;
-  reportQueue?: (metrics: { oldestDueMs?: number; oldestBootstrapDueMs?: number; regularVisited: number; bootstrapVisited: number }) => void;
+  reportQueue?: (metrics: RollupSourceMetrics & {
+    oldestDueMs?: number; oldestBootstrapDueMs?: number; regularVisited: number; bootstrapVisited: number; elapsedMs?: number;
+  }) => void;
 } = {}) {
   const startedAt = now();
   const stopAt = startedAt + runForMs;
@@ -646,7 +952,10 @@ export async function runReadingRollupCron(db: Firestore, { now = Date.now, runF
   type DueField = 'dueAt' | 'bootstrapDueAt';
   const visited = new Set<string>();
   const deferred: { id: string; field: DueField }[] = [];
-  const metrics: Parameters<NonNullable<typeof reportQueue>>[0] = { regularVisited: 0, bootstrapVisited: 0 };
+  const metrics: Parameters<NonNullable<typeof reportQueue>>[0] = {
+    regularVisited: 0, bootstrapVisited: 0, legacyDocuments: 0, dayDocuments: 0,
+    inputSessions: 0, inputIntervals: 0, quarantinedDayDocuments: 0,
+  };
   const reportFailure = (stage: string, error: unknown) => {
     console.error('[reading-rollup]', stage, error instanceof Error ? error.name : 'unknown');
   };
@@ -655,7 +964,7 @@ export async function runReadingRollupCron(db: Firestore, { now = Date.now, runF
     let status: string | undefined;
     try {
       lease = await claimReadingRollup(db, id, now);
-      if (lease) status = await closeReadingRollup(db, lease, deadline, now, sourcePagesPerTurn);
+      if (lease) status = await closeReadingRollup(db, lease, deadline, now, sourcePagesPerTurn, metrics);
     } catch (error) {
       reportFailure('scheduled job failed', error);
       status = 'failed';
@@ -725,6 +1034,6 @@ export async function runReadingRollupCron(db: Firestore, { now = Date.now, runF
       else if (status === undefined) outcomes.pending = (outcomes.pending ?? 0) + 1;
     }
   }
-  reportQueue?.(metrics);
+  reportQueue?.({ ...metrics, elapsedMs: now() - startedAt });
   return outcomes;
 }

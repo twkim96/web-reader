@@ -9,12 +9,15 @@ import {
   V11_READING_SESSIONS_STORE,
   V12_READING_STATISTICS_SYNC_STORE,
   readingStatisticsArchiveKey,
+  readingStatisticsDayBaselineKey,
+  readingStatisticsDayStorageKey,
   readingStatisticsRecentKey,
 } from '../src/lib/localDBSchema.ts';
 import {
   adoptLegacyReadingStatisticsCursorV12,
   beginReadingStatisticsRecentRecovery,
   deferReadingSessionSyncV11,
+  finalizeReadingDayTail,
   confirmLocalReadingRoundV11,
   getReadingStatisticsHydrationPlanV12,
   getReadingStatisticsHydrationStateV12,
@@ -22,9 +25,12 @@ import {
   getLocalReadingRollupArchive,
   getLocalReadingSessionsV11,
   getPendingReadingSessionsV11,
+  hydrateReadingDayReceivePage,
   hydrateRemoteReadingSessionsPageV12,
   installReadingStatisticsBootstrap,
   markReadingSessionSyncedV11,
+  needsReadingDayBaseline,
+  prepareReadingDayReceive,
   reconcileUploadedReadingSessionConflictV11,
   recordReadingStatisticsHydrationMetricsV12,
   recordReadingStatisticsVerifiedAuditV12,
@@ -35,6 +41,7 @@ import {
 } from '../src/lib/readingStatisticsSyncLease.ts';
 import { catchUpReadingStatisticsAuditAsLeader } from '../src/lib/readingStatisticsSyncCoordinator.ts';
 import { parseReadingRollupBootstrap } from '../src/lib/readingRollupBootstrap.ts';
+import { identifyReadingDaySession } from '../src/lib/readingStatisticsDay.ts';
 import {
   getReadingStatisticsDraftKey,
   getReadingStatisticsDraftRecoveryEnd,
@@ -76,6 +83,37 @@ const makeSession = (sessionId = 'session-1', bookTitle = 'Book') => ({
   completed: false,
 });
 
+test('device-day rows share the local report without exposing their outbox to a legacy tab', async () => {
+  const account = makeOwnerKey(makeFirebaseOwnerKey('device-day-local'), 'library:local');
+  const day = await identifyReadingDaySession(makeSession('00000000-0000-4000-8000-000000000001'));
+  const legacy = makeSession('legacy-local');
+  const now = 100_000;
+  const floor = { seconds: 1, nanoseconds: 0 };
+  const received = { seconds: 70, nanoseconds: 2_000 };
+  await saveLocalReadingSessionV11(account, legacy);
+  await saveLocalReadingSessionV11(account, day);
+  const db = await initDB();
+  const dayKey = readingStatisticsDayStorageKey(account);
+  const legacyPage = await db.getAllFromIndex(V11_READING_SESSIONS_STORE, 'by-owner-sync-next-attempt',
+    IDBKeyRange.bound([account, 'pending', 0], [account, 'pending', now]));
+  assert.deepEqual(legacyPage.map(({ sessionId }) => sessionId), [legacy.sessionId]);
+  assert.ok(await db.get(V11_READING_SESSIONS_STORE, [dayKey, day.sessionId]));
+  const claim = await acquireReadingStatisticsSyncLeaseV13(account, 'new-tab', now);
+  const state = await prepareReadingDayReceive(account, floor, undefined, claim, now);
+  const nextCursor = { updated: received, id: 'part-one' };
+  const page = { entries: [{ session: day, firstReceivedAt: received }], nextCursor, done: true, quarantinedParts: [] };
+  assert.equal((await hydrateReadingDayReceivePage(account, state, page, claim, now)).completed, true);
+  assert.equal(await hydrateReadingDayReceivePage(account, state, page, claim, now), null, 'stale cursor cannot reapply a page');
+  const synced = await db.get(V11_READING_SESSIONS_STORE, [dayKey, day.sessionId]);
+  assert.equal(synced.syncState, 'synced');
+  assert.equal((await db.get(V11_READING_SESSIONS_STORE, [account, legacy.sessionId])).syncState, 'pending');
+  const report = await getLocalReadingReportSnapshot(account, true);
+  assert.equal(report.rawHistoryComplete, false);
+  assert.deepEqual(report.sessions.map(({ sessionId, ownerKey }) => [sessionId, ownerKey]), [
+    [day.sessionId, account], [legacy.sessionId, account],
+  ]);
+});
+
 test('a statistics snapshot does not treat the first received page as the complete raw history', async () => {
   const reportOwner = makeOwnerKey(makeFirebaseOwnerKey('report-snapshot'), 'library:local');
   const first = makeSession('report-first');
@@ -104,6 +142,128 @@ const publishedFixture = () => parseReadingRollupBootstrap({
   carry: {
     sampleFloor: Date.parse('2026-11-20'), sessions: [publishedRead('already-uploaded', '2026-11-24T12:00:00Z')],
   },
+});
+
+test('a published report waits for both tails and drops only stale synced day rows when the cutoff moves', async (t) => {
+  const previous = process.env.NEXT_PUBLIC_READING_STATS_DAY_MODE;
+  process.env.NEXT_PUBLIC_READING_STATS_DAY_MODE = 'write';
+  t.after(() => {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_READING_STATS_DAY_MODE;
+    else process.env.NEXT_PUBLIC_READING_STATS_DAY_MODE = previous;
+  });
+  const account = makeOwnerKey(makeFirebaseOwnerKey('device-day-publication'), 'library:local');
+  const now = Date.parse('2026-11-26T00:00:00Z');
+  const archive = publishedFixture();
+  const lease = await acquireReadingStatisticsSyncLeaseV13(account, 'day-sync', now);
+  const identify = (suffix, time) => identifyReadingDaySession(publishedRead(
+    `00000000-0000-4000-8000-00000000000${suffix}`, time,
+  ));
+  const late = await identify(1, '2026-11-22T22:00:00Z');
+  const open = await identify(2, '2026-11-25T16:00:00Z');
+  const pending = await identify(3, '2026-11-25T19:00:00Z');
+  await saveLocalReadingSessionV11(account, pending);
+  assert.deepEqual((await getPendingReadingSessionsV11(account, now)).map(({ sessionId }) => sessionId), [pending.sessionId]);
+  assert.equal(await installReadingStatisticsBootstrap(account, archive, lease, now), true);
+  const { published } = await getReadingStatisticsHydrationPlanV12(account, now, true);
+  await hydrateRemoteReadingSessionsPageV12(account, [], null, null, true, false, [], now, lease, true, published);
+  assert.equal((await getLocalReadingReportSnapshot(account, true)).tailComplete, false);
+  const day = await prepareReadingDayReceive(account, published.sourceThrough, published, lease, now);
+  const after = { seconds: published.sourceThrough.seconds + 1, nanoseconds: 0 };
+  const legacy = await hydrateReadingDayReceivePage(account, day, {
+    entries: [], nextLegacyCursor: null, done: true, quarantinedParts: [],
+  }, lease, now);
+  await hydrateReadingDayReceivePage(account, legacy, {
+    entries: [late, open].map((session) => ({ session, firstReceivedAt: after })),
+    nextCursor: { updated: after, id: 'newest-part' }, done: true, quarantinedParts: [],
+  }, lease, now);
+  assert.equal(await finalizeReadingDayTail(account, published, lease, now), true);
+  const report = await getLocalReadingReportSnapshot(account, true);
+  assert.equal(report.tailComplete, true);
+  assert.deepEqual(report.sessions.map(({ sessionId }) => sessionId), ['already-uploaded', open.sessionId, pending.sessionId]);
+  assert.equal(await installReadingStatisticsBootstrap(account, {
+    ...archive, calendar: { ...archive.calendar, lastDay: '2026-11-29' }, sourceThrough: after,
+    carry: { ...archive.carry, sessions: [open] },
+  }, lease, now, published), true);
+  const { published: next } = await getReadingStatisticsHydrationPlanV12(account, now, true);
+  await prepareReadingDayReceive(account, next.sourceThrough, next, lease, now);
+  const db = await initDB();
+  assert.equal(await db.get(V11_READING_SESSIONS_STORE, [readingStatisticsDayStorageKey(account), open.sessionId]), undefined);
+  assert.equal((await db.get(V11_READING_SESSIONS_STORE, [readingStatisticsDayStorageKey(account), pending.sessionId])).syncState, 'pending');
+  assert.deepEqual((await getLocalReadingReportSnapshot(account, true)).sessions.map(({ sessionId }) => sessionId), [open.sessionId]);
+});
+
+test('mixed tails use first receipt order across source pages and refuse to certify a lost receipt', async () => {
+  const account = makeOwnerKey(makeFirebaseOwnerKey('mixed-receipt-order'), 'library:local');
+  const now = Date.parse('2026-11-26T00:00:00Z');
+  const archive = publishedFixture();
+  const cutoff = archive.sourceThrough;
+  const lease = await acquireReadingStatisticsSyncLeaseV13(account, 'mixed-sync', now);
+  const early = await identifyReadingDaySession(publishedRead(
+    '00000000-0000-4000-8000-000000000004', '2026-11-23T00:01:00Z',
+  ));
+  const late = { ...publishedRead('late-v1-clock', '2026-11-23T00:10:00Z'), clockOffsetMs: -120_000,
+    clockUncertaintyMs: 1, clockMeasuredAtClient: early.startedAtClient };
+  await installReadingStatisticsBootstrap(account, archive, lease, now);
+  const { published } = await getReadingStatisticsHydrationPlanV12(account, now, true);
+  const firstReceivedAt = { seconds: cutoff.seconds + 3, nanoseconds: 20 };
+  const later = { ...firstReceivedAt, nanoseconds: 21 };
+  const initial = await prepareReadingDayReceive(account, cutoff, published, lease, now);
+  await hydrateReadingDayReceivePage(account, initial, {
+    entries: [{ session: late, firstReceivedAt: later }], nextLegacyCursor: cursor(later.seconds, late.sessionId, later.nanoseconds),
+    done: true, quarantinedParts: [],
+  }, lease, now);
+  await closeLocalDB();
+  const resumed = await prepareReadingDayReceive(account, cutoff, published, lease, now);
+  assert.equal(resumed.legacyCompleted, true);
+  await hydrateReadingDayReceivePage(account, resumed, {
+    entries: [{ session: early, firstReceivedAt }], nextCursor: { updated: firstReceivedAt, id: 'part' },
+    done: true, quarantinedParts: [],
+  }, lease, now);
+  assert.equal(await finalizeReadingDayTail(account, published, lease, now), true);
+  const report = await getLocalReadingReportSnapshot(account, true);
+  assert.equal(report.tailComplete, true);
+  assert.deepEqual(report.sessions.map(({ sessionId }) => sessionId), [early.sessionId, 'already-uploaded']);
+
+  const db = await initDB();
+  await db.delete(V11_READING_SESSIONS_STORE, [readingStatisticsDayStorageKey(account), early.sessionId]);
+  assert.equal((await getLocalReadingReportSnapshot(account, true)).tailComplete, false);
+  const replay = await prepareReadingDayReceive(account, cutoff, published, lease, now);
+  assert.equal(replay.legacyCursor, null);
+  assert.equal(replay.cursor, null);
+  assert.equal(replay.receiptCount, 0);
+});
+
+test('a legacy tab advancing the publication invalidates the old mixed-source baseline', async () => {
+  const account = makeOwnerKey(makeFirebaseOwnerKey('legacy-tab-publication'), 'library:local');
+  const now = Date.parse('2026-12-02T00:00:00Z');
+  const first = publishedFixture();
+  const lease = await acquireReadingStatisticsSyncLeaseV13(account, 'mixed-sync', now);
+  const db = await initDB();
+  const key = readingStatisticsDayBaselineKey(account);
+  await installReadingStatisticsBootstrap(account, first, lease, now);
+  const baseline = await db.get(V12_READING_STATISTICS_SYNC_STORE, key);
+  const { published } = await getReadingStatisticsHydrationPlanV12(account, now, true);
+  const second = {
+    ...first, calendar: { ...first.calendar, lastDay: '2026-11-29' },
+    sourceThrough: { ...first.sourceThrough, seconds: first.sourceThrough.seconds + 7 * 86_400 },
+    carry: { ...first.carry, sessions: [] },
+  };
+  assert.equal(await installReadingStatisticsBootstrap(account, second, lease, now, published), true);
+  const { published: latest } = await getReadingStatisticsHydrationPlanV12(account, now, true);
+  // Old clients update the shared checkpoint but leave the V2 baseline row alone.
+  await db.put(V12_READING_STATISTICS_SYNC_STORE, { ...baseline, carrySessionIds: [] });
+  const state = await prepareReadingDayReceive(account, latest.sourceThrough, latest, lease, now);
+  const legacy = await hydrateReadingDayReceivePage(account, state, {
+    entries: [], nextLegacyCursor: null, done: true, quarantinedParts: [],
+  }, lease, now);
+  await hydrateReadingDayReceivePage(account, legacy, {
+    entries: [], nextCursor: null, done: true, quarantinedParts: [],
+  }, lease, now);
+  assert.equal(await needsReadingDayBaseline(account), true);
+  assert.equal(await finalizeReadingDayTail(account, latest, lease, now), false);
+  assert.equal(await installReadingStatisticsBootstrap(account, second, lease, now, latest), true);
+  assert.equal(await needsReadingDayBaseline(account), false);
+  assert.equal(await finalizeReadingDayTail(account, latest, lease, now), true);
 });
 
 test('a new device keeps the carry before the cutoff and resumes its received tail after a restart', async () => {

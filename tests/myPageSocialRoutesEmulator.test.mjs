@@ -24,6 +24,7 @@ const { GET: sharedDriveGet, POST: sharedDrivePost } = unwrap(await import('../s
 const { POST: driveLibraryFolderPost } = unwrap(await import('../src/app/api/drive-library-folder/route.ts'));
 const { GET: getBookReviews } = unwrap(await import('../src/app/api/book-reviews/route.ts'));
 const { GET: getAdminAccounts } = unwrap(await import('../src/app/api/admin/accounts/route.ts'));
+const { POST: postReadingDay } = unwrap(await import('../src/app/api/reading-statistics/day/route.ts'));
 const { getAdminAuth, getAdminFirestore } = unwrap(await import('../src/server/firebaseAdmin.ts'));
 const { loadSocialCatalog, resolveSocialWork } = unwrap(await import('../src/server/mypage/catalog.ts'));
 const { getSocialReadingEvidence } = unwrap(await import('../src/server/mypage/reading.ts'));
@@ -32,6 +33,7 @@ const { parseBookMetadataRefreshRequest } = unwrap(await import('../src/server/b
 const { platformWorkKey } = unwrap(await import('../src/lib/readBooks.ts'));
 const { getPublicBookMetadataAliasCandidates } = unwrap(await import('../src/lib/publicBookMetadataSchema.ts'));
 const { APP_ID } = unwrap(await import('../src/lib/appIdentity.ts'));
+const { identifyReadingDaySession, readingDayBucketFromSessionId, readingDayPartId } = unwrap(await import('../src/lib/readingStatisticsDay.ts'));
 
 const base = 'http://localhost/api/mypage';
 const get = (params, token) => GET(new Request(base + '?' + new URLSearchParams(params), {
@@ -57,6 +59,38 @@ async function ok(response) {
 }
 const workReviews = (workId) => ok(getBookReviews(new Request('http://localhost/api/book-reviews?' + new URLSearchParams({ workId }))));
 after(async () => { await Promise.all(getApps().map((app) => deleteApp(app))); });
+
+test('the reading day route uses the authenticated owner and can replay a lost acknowledgement', async (t) => {
+  const key = 'NEXT_PUBLIC_READING_STATS_DAY_MODE';
+  const previous = process.env[key];
+  t.after(() => { if (previous === undefined) delete process.env[key]; else process.env[key] = previous; });
+  const account = await emulatorLogin('reading-day-writer');
+  const startedAtClient = Date.parse('2026-11-22T14:30:00Z');
+  const session = await identifyReadingDaySession({
+    schemaVersion: 1, sessionId: '00000000-0000-4000-8000-000000000001',
+    deviceId: 'tablet', bookId: 'test-file', bookTitle: 'Test book', mode: 'screen', completed: false,
+    startProgressPercent: 0, endProgressPercent: 3, startedAtClient, endedAtClient: startedAtClient + 180_000,
+    durationMs: 180_000, localDate: '2026-11-22', timezoneOffsetMinutes: -540,
+  });
+  const request = (token, value) => postReadingDay(new Request('http://localhost/api/reading-statistics/day', {
+    method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {}, body: JSON.stringify(value),
+  }));
+  process.env[key] = 'read';
+  assert.equal((await request(account.idToken, session)).status, 503);
+  process.env[key] = 'write';
+  assert.equal((await request(undefined, session)).status, 401);
+  assert.equal((await request(account.idToken, { ...session, localDate: '2026-11-23' })).status, 400);
+  const result = await request(account.idToken, { ...session, uid: 'different-account' });
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { status: 'created', part: 0 });
+  const id = readingDayPartId(readingDayBucketFromSessionId(session.sessionId), 0);
+  const ref = (uid) => getAdminFirestore().doc(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsDaysV2/${id}`);
+  const before = await ref(account.localId).get();
+  assert.ok(before.exists);
+  assert.equal((await ref('different-account').get()).exists, false);
+  assert.deepEqual(await (await request(account.idToken, session)).json(), { status: 'replayed' });
+  assert.ok((await ref(account.localId).get()).get('lastReceivedAt').isEqual(before.get('lastReceivedAt')));
+});
 
 test('admin accounts authorizes only the pilot and reads two published weeks on demand', async (t) => {
   const pilot = await emulatorLogin('admin-pilot');

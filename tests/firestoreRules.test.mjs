@@ -29,6 +29,7 @@ import {
   startAfter,
   startAt,
   Timestamp,
+  where,
   writeBatch,
 } from 'firebase/firestore';
 import { applyProgressEventTransaction } from '../src/lib/progressSyncTransaction.ts';
@@ -1387,6 +1388,53 @@ test('rejects malformed or cross-owner reading statistic sessions', async () => 
     ...validReadingSession('drive-session'),
     uploadedAtServer: serverTimestamp(),
   }));
+});
+
+test('device-day reading statistics are owner-readable and only the server writes them', async () => {
+  const path = `artifacts/${appId}/users/alice/libraries/local/readingStatsDaysV2/day-part`;
+  await environment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), path), { containerVersion: 2 });
+  });
+  const db = database();
+  await assertSucceeds(getDoc(doc(db, path)));
+  await assertFails(getDoc(doc(database('mallory'), path)));
+  await assertFails(setDoc(doc(db, path), { containerVersion: 2, memberCount: 9 }));
+  await assertFails(setDoc(doc(db, path + '-new'), { containerVersion: 2 }));
+  const v2Id = 'day2_2026-11-22_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  await assertFails(setDoc(doc(db, readingStatisticsPath(v2Id)), {
+    ...validReadingSession(v2Id), uploadedAtServer: serverTimestamp(),
+  }));
+});
+
+test('device-day hydration reads only freshly received members of an updated part', async () => {
+  const { identifyReadingDaySession, encodeReadingDayMember, readingDayBucketFromSessionId } =
+    await import('../src/lib/readingStatisticsDay.ts');
+  const { getReadingDayReceivePage } = await import('../src/lib/readingStatisticsDaySync.ts');
+  const make = (suffix) => identifyReadingDaySession(validReadingSession(`00000000-0000-4000-8000-00000000000${suffix}`));
+  const [covered, tail] = await Promise.all([make(6), make(7)]);
+  const upload = new Timestamp(60, 310_000);
+  const first = new Timestamp(60, 309_000);
+  const latest = new Timestamp(60, 311_000);
+  const bucket = readingDayBucketFromSessionId(covered.sessionId);
+  const id = `${bucket}_0`;
+  const parts = [[covered, first], [tail, latest]].map(([session, firstReceivedAt]) =>
+    [session.sessionId, { ...encodeReadingDayMember(session), firstReceivedAt }]);
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const path = `artifacts/${appId}/users/alice/libraries/local/readingStatsDaysV2/${id}`;
+    await setDoc(doc(context.firestore(), path), {
+      containerVersion: 2, bucket, part: 0, hasNext: false, deviceId: covered.deviceId, capturedDay: covered.localDate,
+      firstReceivedAt: first, lastReceivedAt: latest, memberCount: 2,
+      bytes: parts.reduce((total, [, value]) => total + value.bytes, 0), intervals: 0,
+      members: Object.fromEntries(parts.map(([key, { payload, firstReceivedAt }]) => [key, { payload, firstReceivedAt }])),
+    });
+  });
+  const sdk = { collection, documentId, getDocsFromServer, limit, orderBy, query, startAfter, Timestamp, where };
+  const page = await getReadingDayReceivePage(database(), 'alice', upload, null, sdk);
+  assert.deepEqual(page.entries.map(({ session }) => session.sessionId), [tail.sessionId]);
+  assert.equal(page.documents, 1);
+  assert.equal(page.done, true);
+  assert.equal((await getReadingDayReceivePage(database(), 'alice', upload, page.nextCursor, sdk)).documents, 0);
+  await assert.rejects(getReadingDayReceivePage(database('mallory'), 'alice', upload, null, sdk), { code: 'permission-denied' });
 });
 
 test('weekly statistics audit allows a device to fetch only new uploads and rejects missing history', async () => {

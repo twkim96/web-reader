@@ -1,6 +1,14 @@
 {
   "indexes": [
     {
+      "collectionGroup": "readingStatsDaysV2",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "lastReceivedAt", "order": "ASCENDING" },
+        { "fieldPath": "firstReceivedAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "myPageWishlistV1",
       "queryScope": "COLLECTION",
       "fields": [
@@ -33,6 +41,11 @@
     },
     {
       "collectionGroup": "readingStatsRollupBootstrapChunksV1",
+      "fieldPath": "*",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "readingStatsRollupDayChunksV2",
       "fieldPath": "*",
       "indexes": []
     },
@@ -83,6 +96,16 @@
       "collectionGroup": "readingStatsV1",
       "fieldPath": "*",
       "indexes": []
+    },
+    {
+      "collectionGroup": "readingStatsDaysV2",
+      "fieldPath": "*",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "readingStatsDaysV2",
+      "fieldPath": "lastReceivedAt",
+      "indexes": [{ "order": "ASCENDING", "queryScope": "COLLECTION" }]
     },
     {
       "collectionGroup": "eventReceipts",

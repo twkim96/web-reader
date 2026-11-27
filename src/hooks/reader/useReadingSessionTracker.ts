@@ -6,7 +6,8 @@ import type { Book } from '../../types';
 import type { FoliateViewElement } from '../foliate/types';
 import { getOrCreateDeviceId } from '../useDeviceId';
 import { saveLocalReadingSessionV11 } from '../../lib/localReadingStatistics';
-import type { OwnerKey } from '../../lib/ownerIdentity';
+import { isGuestOwner, type OwnerKey } from '../../lib/ownerIdentity';
+import { identifyReadingDaySession, readingDayWritesEnabled } from '../../lib/readingStatisticsDay';
 import {
   getReadingSessionCommitBoundary,
   getReadingSessionLocalDate,
@@ -41,6 +42,7 @@ import {
 
 const HEARTBEAT_MS = 5_000;
 const IFRAME_FOCUS_TRANSFER_GRACE_MS = 1_000;
+const readingDraftFormat = (ownerKey: OwnerKey) => readingDayWritesEnabled() && !isGuestOwner(ownerKey) ? 2 : 1;
 type ActiveSegment = {
   sessionId: string;
   mode: ReadingSessionMode;
@@ -244,11 +246,14 @@ export const useReadingSessionTracker = ({
     endedAtClient: number,
     draftStorageKey?: string,
   ) => {
+    const dayPrefix = getReadingStatisticsDraftPrefix(draft.ownerKey, draft.deviceId, 2);
+    const format = draftStorageKey ? (draftStorageKey.startsWith(dayPrefix) ? 2 : 1) : readingDraftFormat(draft.ownerKey);
     const key = draftStorageKey ?? getReadingStatisticsDraftKey(
       draft.ownerKey,
       draft.deviceId,
       draft.bookId,
       draft.sessionId,
+      format,
     );
     const session = toClosedSession(draft, endedAtClient);
     if (!session) {
@@ -256,7 +261,7 @@ export const useReadingSessionTracker = ({
       return Promise.resolve();
     }
     persistChainRef.current = persistChainRef.current.then(async () => {
-      await saveLocalReadingSessionV11(draft.ownerKey, session);
+      await saveLocalReadingSessionV11(draft.ownerKey, format === 2 ? await identifyReadingDaySession(session) : session);
       try {
         const current = localStorage.getItem(key);
         if (!current) return;
@@ -287,7 +292,7 @@ export const useReadingSessionTracker = ({
     };
     try {
       localStorage.setItem(
-        getReadingStatisticsDraftKey(ownerKey, deviceId, currentBook.id, segment.sessionId),
+        getReadingStatisticsDraftKey(ownerKey, deviceId, currentBook.id, segment.sessionId, readingDraftFormat(ownerKey)),
         JSON.stringify(draft),
       );
     } catch (error) {
@@ -355,7 +360,7 @@ export const useReadingSessionTracker = ({
     // commit after a rapid mode/page transition.
     try {
       localStorage.setItem(
-        getReadingStatisticsDraftKey(ownerKey, deviceId, currentBook.id, segment.sessionId),
+        getReadingStatisticsDraftKey(ownerKey, deviceId, currentBook.id, segment.sessionId, readingDraftFormat(ownerKey)),
         JSON.stringify(draft),
       );
     } catch (error) {
@@ -590,8 +595,9 @@ export const useReadingSessionTracker = ({
     const releaseWriter = holdReadingStatisticsDraftWriter(writerId, locks);
     lastActivityAtRef.current = 0;
     const prefix = getReadingStatisticsDraftPrefix(ownerKey, deviceId);
+    const dayPrefix = getReadingStatisticsDraftPrefix(ownerKey, deviceId, 2);
     const keys = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index))
-      .filter((key): key is string => Boolean(key?.startsWith(prefix)));
+      .filter((key): key is string => key !== null && (key.startsWith(prefix) || key.startsWith(dayPrefix)));
     for (const key of keys) {
       void recoverReadingStatisticsDraft(key, () => {
         try {

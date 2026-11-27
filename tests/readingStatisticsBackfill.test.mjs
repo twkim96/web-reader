@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { Timestamp } from 'firebase-admin/firestore';
 import { openBackfillState, stageReadingStatisticsBackfill } from '../scripts/backfill-reading-statistics.mjs';
+import { identifyReadingDaySession } from '../src/lib/readingStatisticsDay.ts';
 import {
   computeReadingCalendarRollup,
   computeWeeklyReadingRollup,
@@ -26,6 +27,40 @@ const entry = (id, createdAt = Timestamp.fromMillis(cutoff - 10_000)) => ({
     durationMs: 180_000, startProgressPercent: 1, endProgressPercent: 8,
     timezoneOffsetMinutes: 0, localDate: date, completed: false,
   },
+});
+
+test('Mac backfill checkpoints a day-source page and leaves existing drafts alone', async () => {
+  const db = openBackfillState(':memory:');
+  try {
+    const first = await identifyReadingDaySession(entry('00000000-0000-4000-8000-000000000001').data);
+    const second = await identifyReadingDaySession(entry('00000000-0000-4000-8000-000000000002').data);
+    const dayRows = [first, second].map((session) => ({ session, firstReceivedAt: cutoffTimestamp }));
+    let now = cutoff;
+    const paired = {
+      project: 'demo', uid: 'two-sources', firstWeek: week, throughWeek: week,
+      currentTime: () => now, dailyReads: 2,
+      readPage: async (cursor) => ({
+        documents: cursor ? [] : [entry('v1')], readTime: cutoffTimestamp,
+      }),
+    };
+    assert.equal((await stageReadingStatisticsBackfill(db, paired)).status, 'complete');
+    now += 86_400_000;
+    const readDayPage = async (_cursor, _limit, sourceCutoff) => {
+      assert.ok(sourceCutoff.isEqual(cutoffTimestamp));
+      return { entries: dayRows, cursor: 'part-1', done: true };
+    };
+    const draft = db.prepare('SELECT payload FROM weeks').get().payload;
+    await assert.rejects(stageReadingStatisticsBackfill(db, { ...paired, readDayPage }), /Existing drafts predate/);
+    assert.equal(db.prepare('SELECT payload FROM weeks').get().payload, draft);
+    now += 86_400_000;
+    const resume = { ...paired, uid: 'new-two-sources', readDayPage };
+    assert.equal((await stageReadingStatisticsBackfill(db, resume)).status, 'reading');
+    now += 86_400_000;
+    assert.equal((await stageReadingStatisticsBackfill(db, resume)).status, 'complete');
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM sessions WHERE uid = ?').get(resume.uid).count, 3);
+  } finally {
+    db.close();
+  }
 });
 
 test('resumes from a durable cursor, keeps the cutoff, and shares the daily cap across accounts', async (t) => {

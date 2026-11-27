@@ -6,6 +6,8 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { loadSocialCatalog, resolveLegacyReviewWork, resolveSocialWork } from '../src/server/mypage/catalog.ts';
 import { getSocialReadingEvidence } from '../src/server/mypage/reading.ts';
 import { platformWorkKey } from '../src/lib/readBooks.ts';
+import { encodeReadingDayMember, identifyReadingDaySession, readingDayBucketFromSessionId } from '../src/lib/readingStatisticsDay.ts';
+import { computeReadingFileRollups } from '../src/lib/readingStatisticsRollup.ts';
 
 const hash = (s) => createHash('sha256').update(s).digest('hex');
 
@@ -67,41 +69,187 @@ test('explicit social work links require one published root even when the title 
   assert.equal((await resolveSocialWork(db, first.id, [])).book.id, first.id);
 });
 
-function fixtureStats(readRows, onFullScan = () => {}) {
-  const timestamp = (row) => row.get?.('uploadedAtServer');
+function fixtureStats(readRows, onFullScan = () => {}, readTime = () => Timestamp.now()) {
+  const value = (row, field) => typeof field === 'string' ? row.get?.(field) ?? row.data()[field] : row.id;
+  const compare = (left, right) => Buffer.compare(Buffer.from(left.valueOf()), Buffer.from(right.valueOf()));
+  const inequalities = {
+    '>': (left, right) => left > right,
+    '>=': (left, right) => left >= right,
+    '<=': (left, right) => left <= right,
+  };
+  const makeQuery = () => {
+    const ordering = [];
+    const filters = [];
+    let after;
+    let through;
+    let pageSize;
+    let projection = false;
+    const tuple = (row) => ordering.map(({ field }) => value(row, field));
+    const compareTuples = (left, right) => {
+      for (const [index, item] of right.entries()) {
+        const order = compare(left[index], item);
+        if (order) return ordering[index].direction === 'desc' ? -order : order;
+      }
+      return 0;
+    };
+    const query = {
+      orderBy: (field, direction) => { ordering.push({ field, direction }); return query; },
+      where: (field, operator, stamp) => {
+        filters.push((row) => inequalities[operator](value(row, field), stamp));
+        return query;
+      },
+      select: () => { projection = true; return query; },
+      limit: (size) => { pageSize = size; return query; },
+      startAfter: (...values) => { after = values[0]?.data ? tuple(values[0]) : values; return query; },
+      endAt: (...values) => { through = values; return query; },
+      get: async () => {
+        if (!projection && typeof ordering[0]?.field !== 'string') onFullScan();
+        const docs = readRows()
+          .filter((row) => tuple(row).every((item) => item !== undefined) && filters.every((filter) => filter(row)))
+          .sort((left, right) => compareTuples(tuple(left), tuple(right)))
+          .filter((row) => (!after || compareTuples(tuple(row), after) > 0) && (!through || compareTuples(tuple(row), through) <= 0))
+          .slice(0, pageSize);
+        return { docs, size: docs.length, empty: docs.length === 0, readTime: readTime() };
+      },
+    };
+    return query;
+  };
   return {
     count: () => ({ get: async () => ({ data: () => ({ count: readRows().length }) }) }),
-    orderBy(field, direction) {
-      const timestampOrdered = field === 'uploadedAtServer';
-      let after;
-      let pageSize;
-      const query = {
-        orderBy: () => query,
-        select: () => query,
-        limit: (size) => { pageSize = size; return query; },
-        startAfter: (stamp, id) => { after = { stamp, id }; return query; },
-        get: async () => {
-          let docs = readRows();
-          if (timestampOrdered) {
-            docs = docs.filter(timestamp).sort((left, right) => (
-              timestamp(left).valueOf().localeCompare(timestamp(right).valueOf())
-              || Buffer.compare(Buffer.from(left.id), Buffer.from(right.id))
-            ));
-            if (direction === 'desc') docs.reverse();
-            if (after) docs = docs.filter((row) => timestamp(row) > after.stamp
-              || (timestamp(row).isEqual(after.stamp) && row.id > after.id));
-          } else {
-            onFullScan();
-          }
-          return { docs: docs.slice(0, pageSize), readTime: Timestamp.now() };
-        },
-      };
-      return query;
-    },
+    orderBy: (...args) => makeQuery().orderBy(...args),
+    select: () => makeQuery().select(),
+    where: (...args) => makeQuery().where(...args),
   };
 }
 
 const readFixtureTransaction = (callback) => callback({ get: (query) => query.get() });
+const emptyDayStats = fixtureStats(() => []);
+
+function makeReadingSession(bookId, bookTitle, sessionId, start, progress) {
+  return {
+    schemaVersion: 1, sessionId, bookId, bookTitle, deviceId: 'device', mode: 'screen',
+    startedAtClient: start, endedAtClient: start + 2000, durationMs: 2000,
+    startProgressPercent: 0, endProgressPercent: progress, timezoneOffsetMinutes: 0,
+    localDate: new Date(start).toISOString().slice(0, 10), completed: false,
+  };
+}
+
+const fixtureLegacyRow = (session, uploadedAtServer) => ({
+  id: session.sessionId,
+  get: (field) => field === 'uploadedAtServer' ? uploadedAtServer : session[field],
+  data: () => ({ ...session, uploadedAtServer }),
+});
+
+function fixtureDayPart(part, entries) {
+  const first = entries[0];
+  const bucket = readingDayBucketFromSessionId(first.session.sessionId);
+  const members = {};
+  let bytes = 0;
+  for (const { session, firstReceivedAt } of entries) {
+    const encoded = encodeReadingDayMember(session);
+    members[session.sessionId] = { payload: encoded.payload, firstReceivedAt };
+    bytes += encoded.bytes;
+  }
+  return {
+    id: `${bucket}_${part}`,
+    data: () => ({
+      containerVersion: 2, bucket, part, hasNext: false, deviceId: first.session.deviceId, capturedDay: first.session.localDate,
+      firstReceivedAt: first.firstReceivedAt, lastReceivedAt: entries.at(-1).firstReceivedAt,
+      memberCount: entries.length, members, bytes, intervals: 0,
+    }),
+  };
+}
+
+test('published rating evidence joins the complete receipt window across both sources', async (t) => {
+  const previous = process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS;
+  process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS = '1';
+  t.after(() => {
+    if (previous === undefined) delete process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS;
+    else process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS = previous;
+  });
+  const book = (await loadSocialCatalog()).values().next().value;
+  const start = Date.parse('2025-12-17T09:00:00Z');
+  const sourceThrough = Timestamp.fromMillis(start + 100_000);
+  const later = new Timestamp(sourceThrough.seconds, 1);
+  const readTime = new Timestamp(sourceThrough.seconds, 2);
+  const future = new Timestamp(sourceThrough.seconds, 3);
+  const legacy = (id, index, progress) => makeReadingSession('file', book.id, id, start + index * 4000, progress);
+  const day = (index, progress) => identifyReadingDaySession(legacy(
+    `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, index, progress,
+  ));
+  const carry = await day(0, 20);
+  const open = await day(41, 80);
+  const beyondReadTime = await day(42, 99);
+  const days = [
+    fixtureDayPart(0, [
+      { session: carry, firstReceivedAt: sourceThrough },
+      { session: open, firstReceivedAt: readTime },
+      { session: beyondReadTime, firstReceivedAt: future },
+    ]),
+    fixtureDayPart(1, [{ session: open, firstReceivedAt: readTime }]),
+  ];
+  const legacyRows = [
+    ...Array.from({ length: 40 }, (_, index) => fixtureLegacyRow(legacy(`tail-${index}`, index + 1, 50), later)),
+    fixtureLegacyRow(legacy('future', 43, 100), future),
+  ];
+  const closed = makeReadingSession('file', book.id, 'closed', Date.parse('2025-12-10T09:00:00Z'), 10);
+  const manifest = {
+    schemaVersion: 1, firstWeek: '2025-10-06', publishedThroughWeek: '2025-12-08', lastCalendarWeek: '2025-12-08',
+    coversHistoryStart: true, sourceThrough,
+  };
+  const payload = JSON.stringify({ files: computeReadingFileRollups([closed]), carry: { sessions: [carry], sampleFloor: 0 } });
+  const stats = fixtureStats(() => legacyRows, undefined, () => readTime);
+  const dayStats = fixtureStats(() => days, undefined, () => readTime);
+  const db = {
+    collection: (path) => path.endsWith('readingStatsDaysV2') ? dayStats : stats,
+    doc: () => ({ collection: (name) => ({ doc: () => ({
+      get: async () => name === 'readingStatsRollupManifestsV1' ? { data: () => manifest } : {
+        readTime,
+        get: (field) => field === 'throughWeek' ? manifest.publishedThroughWeek : payload,
+      },
+    }) }) }),
+    runTransaction(callback, options) {
+      assert.deepEqual(options, { readOnly: true, readTime });
+      return readFixtureTransaction(callback);
+    },
+  };
+  assert.deepEqual(await getSocialReadingEvidence(db, 'published', book.id, ['file']), {
+    totalMs: 43 * 2000, progressPercent: 80,
+  });
+
+  legacyRows.push(...Array.from({ length: 1_200 }, (_, index) => fixtureLegacyRow(legacy(`extra-${index}`, index, 90), later)));
+  assert.deepEqual(await getSocialReadingEvidence(db, 'over-budget', book.id, ['file']), {
+    totalMs: null, progressPercent: null,
+  });
+});
+
+test('fallback evidence sees a new day part with an unchanged legacy cache marker', async (t) => {
+  const book = (await loadSocialCatalog()).values().next().value;
+  const legacy = makeReadingSession('file', book.id, 'legacy', 1000, 10);
+  const day = await identifyReadingDaySession(makeReadingSession(
+    'file', book.id, '00000000-0000-4000-8000-000000000001', 5000, 70,
+  ));
+  const stamp = Timestamp.fromMillis(10_000);
+  const stats = fixtureStats(() => [fixtureLegacyRow(legacy, stamp)]);
+  const days = [];
+  const dayStats = fixtureStats(() => days);
+  const db = {
+    collection: (path) => path.endsWith('readingStatsDaysV2') ? dayStats : stats,
+    runTransaction: readFixtureTransaction,
+  };
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  const evidence = () => getSocialReadingEvidence(db, 'mixed', book.id, ['file']);
+  assert.deepEqual(await evidence(), { totalMs: 2000, progressPercent: 10 });
+
+  days.push(fixtureDayPart(0, [{ session: day, firstReceivedAt: stamp }]));
+  now += 31_000;
+  assert.deepEqual(await evidence(), { totalMs: 4000, progressPercent: 70 });
+
+  days.push({ id: 'invalid-part', data: () => ({}) });
+  now += 31_000;
+  assert.deepEqual(await evidence(), { totalMs: null, progressPercent: null });
+});
 
 function captureReadingEvidenceLogs(t) {
   const logs = [];
@@ -129,7 +277,7 @@ test('reuses a verified empty history and rescans after the first server-timesta
   const rows = [];
   let fullScans = 0;
   const db = {
-    collection: () => fixtureStats(() => rows, () => { fullScans++; }),
+    collection: (path) => path.endsWith('readingStatsDaysV2') ? emptyDayStats : fixtureStats(() => rows, () => { fullScans++; }),
     runTransaction: readFixtureTransaction,
   };
   const evidence = (uid) => getSocialReadingEvidence(db, uid, book.id, ['file']);
@@ -161,6 +309,7 @@ test('groups filename variants and reassigns a retained timeline after an alias 
   const db = {
     collection(path) {
       if (path.endsWith('readingStatsV1')) return stats;
+      if (path.endsWith('readingStatsDaysV2')) return emptyDayStats;
       return { doc(id) {
         return { get: async () => {
           if (path !== 'publicBookMetadataOnDemandV1' || id !== aliasId) return { exists: false, data: () => undefined };
@@ -230,7 +379,10 @@ test('retains large-history evidence through alias rechecks and audits it on sch
   const stats = fixtureStats(() => sessions.map((session) => ({
     id: session.sessionId, get: () => stamp, data: () => session,
   })));
-  const db = { collection: () => stats, runTransaction: readFixtureTransaction };
+  const db = {
+    collection: (path) => path.endsWith('readingStatsDaysV2') ? emptyDayStats : stats,
+    runTransaction: readFixtureTransaction,
+  };
   const start = Date.now();
   let now = start;
   t.mock.method(Date, 'now', () => now);
@@ -297,6 +449,7 @@ test('published aliases prove reading while private titles and unrelated file hi
   const ambiguousId = hash('ambiguousoldname');
   const db = { collection(path) {
     if (path.endsWith('readingStatsV1')) return stats;
+    if (path.endsWith('readingStatsDaysV2')) return emptyDayStats;
     return { doc(id) {
       const data = path === 'publicBookMetadataV1' && buckets.has(id)
         ? { schemaVersion: 1, entries: buckets.get(id) }

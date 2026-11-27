@@ -19,6 +19,7 @@ import {
 } from 'firebase/firestore';
 import { APP_ID } from './appIdentity';
 import type { ReadingUploadTime } from './readingRollupBootstrap';
+import type { ReadingDayEntry } from './readingStatisticsDay';
 import {
   MAX_QUARANTINED_READING_STATISTICS_DOCUMENTS,
   type QuarantinedReadingStatisticsDocumentV12,
@@ -318,6 +319,7 @@ export const getRemoteReadingSessionsPageV1 = async (
     sdk.limit(pageSize),
   ));
   const sessions: ReadingSessionV1[] = [];
+  const entries: ReadingDayEntry[] = [];
   const quarantinedDocuments: QuarantinedReadingStatisticsDocumentV12[] = [];
   let nextCursor = cursor;
   while (true) {
@@ -332,7 +334,11 @@ export const getRemoteReadingSessionsPageV1 = async (
           ...timestampCursor,
           documentId: document.id,
         };
-        sessions.push(parseRemoteReadingSessionDocument(data, document.id));
+        const session = parseRemoteReadingSessionDocument(data, document.id);
+        sessions.push(session);
+        entries.push({ session, firstReceivedAt: {
+          seconds: timestampCursor.uploadedAtServerSeconds, nanoseconds: timestampCursor.uploadedAtServerNanoseconds,
+        } });
       } catch (error) {
         quarantinedDocuments.push({
           documentId: document.id,
@@ -362,6 +368,7 @@ export const getRemoteReadingSessionsPageV1 = async (
   }
   return {
     sessions,
+    entries,
     quarantinedDocuments,
     nextCursor,
     fullHydrationCompleted: snapshot.size < pageSize,

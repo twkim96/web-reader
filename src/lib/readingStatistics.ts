@@ -580,7 +580,7 @@ type ClockSample = { measuredAt: number; offset: number; sessionId: string };
 
 // Match Firestore and SQLite's order for equal-distance samples, even when
 // the sessions arrive in different pages or are loaded in time order.
-const compareClockSampleIds = (left: string, right: string) => {
+export const compareReadingSessionIds = (left: string, right: string) => {
   const length = Math.min(left.length, right.length);
   let index = 0;
   while (index < length && left[index] === right[index]) index++;
@@ -596,7 +596,7 @@ const buildClockSampleIndex = (sessions: readonly ReadingSessionV1[]) => {
     samplesByDevice.set(deviceId, samples);
   });
   for (const [deviceId, samples] of samplesByDevice) {
-    samples.sort((left, right) => left.measuredAt - right.measuredAt || compareClockSampleIds(left.sessionId, right.sessionId));
+    samples.sort((left, right) => left.measuredAt - right.measuredAt || compareReadingSessionIds(left.sessionId, right.sessionId));
     samplesByDevice.set(deviceId, samples.filter((sample, index) =>
       sample.measuredAt !== samples[index - 1]?.measuredAt));
   }
@@ -625,7 +625,7 @@ const getClockCorrection = (
   const earlierDistance = earlier ? start - earlier.measuredAt : Infinity;
   const laterDistance = later ? later.measuredAt - start : Infinity;
   const useEarlier = earlier && (!later || earlierDistance < laterDistance
-    || (earlierDistance === laterDistance && compareClockSampleIds(earlier.sessionId, later.sessionId) < 0));
+    || (earlierDistance === laterDistance && compareReadingSessionIds(earlier.sessionId, later.sessionId) < 0));
   const distance = useEarlier ? earlierDistance : laterDistance;
   return distance <= READING_SESSION_CLOCK_SAMPLE_MAX_AGE_MS ? (useEarlier ? earlier : later).offset : undefined;
 };
@@ -645,7 +645,7 @@ export function getReadingSessionLocalStartsBefore(sessions: readonly ReadingSes
 const compareWinner = (left: PreparedSession, right: PreparedSession) => {
   const modeDifference = Number(right.session.mode === 'tts') - Number(left.session.mode === 'tts');
   return modeDifference || left.session.sessionId.localeCompare(right.session.sessionId)
-    || compareClockSampleIds(left.session.sessionId, right.session.sessionId);
+    || compareReadingSessionIds(left.session.sessionId, right.session.sessionId);
 };
 
 const heapPush = (heap: PreparedSession[], value: PreparedSession) => {

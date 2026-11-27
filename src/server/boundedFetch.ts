@@ -3,7 +3,7 @@ export class ResponseSizeError extends Error {
 }
 
 /** Enforce the cap during streaming, even when Content-Length is absent or false. */
-export const readBoundedBody = async (response: Response, maxBytes: number) => {
+export const readBoundedBody = async (response: Pick<Response, 'body' | 'headers'>, maxBytes: number) => {
   const declared = Number(response.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > maxBytes) {
     await response.body?.cancel();

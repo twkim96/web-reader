@@ -671,8 +671,14 @@ service cloud.firestore {
     match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/readingStatsV1/{sessionId} {
       allow read: if owns(uid) && isCanonicalScope(scopeId);
       allow create: if owns(uid) && isCanonicalScope(scopeId)
+        && !sessionId.matches('^day2_.*$')
         && validReadingSession(request.resource.data, sessionId);
       allow update, delete: if false;
+    }
+
+    match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/readingStatsDaysV2/{dayPartId} {
+      allow read: if owns(uid) && isCanonicalScope(scopeId);
+      allow write: if false;
     }
 
     match /artifacts/{appId}/users/{uid}/libraries/{scopeId}/annotationSyncV1/{bookId} {

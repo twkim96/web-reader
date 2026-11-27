@@ -22,6 +22,7 @@ import { createReadingRollupCarry, rollupCoversHistoryStart } from '../src/serve
 import {
   claimReadingRollup, releaseReadingRollup, stageReadingRollupHandoff,
 } from '../src/server/readingRollupStore.ts';
+import { readReadingDayWindowMemberRows, readingDayWindowQuery } from '../src/server/readingStatisticsDayStore.ts';
 
 const weekMs = 7 * 86_400_000;
 const pageLimit = 100;
@@ -59,6 +60,8 @@ export function openBackfillState(path) {
     if (!jobColumns.has('cutoff_submillis')) db.exec('ALTER TABLE jobs ADD COLUMN cutoff_submillis INTEGER');
     if (!jobColumns.has('blocked_document')) db.exec('ALTER TABLE jobs ADD COLUMN blocked_document TEXT');
     if (!jobColumns.has('blocked_reason')) db.exec('ALTER TABLE jobs ADD COLUMN blocked_reason TEXT');
+    if (!jobColumns.has('day_cursor')) db.exec('ALTER TABLE jobs ADD COLUMN day_cursor TEXT');
+    if (!jobColumns.has('day_ingested')) db.exec('ALTER TABLE jobs ADD COLUMN day_ingested INTEGER NOT NULL DEFAULT 0');
     const weekColumns = db.prepare('PRAGMA table_info(weeks)').all();
     if (!weekColumns.some(({ name }) => name === 'cutoff_submillis')) db.exec('ALTER TABLE weeks ADD COLUMN cutoff_submillis INTEGER');
   });
@@ -86,7 +89,7 @@ function readCutoff({ cutoff, cutoff_submillis: remainder }) {
 
 /** Read only the fixed source generation; store a page and its cursor together. */
 export async function stageReadingStatisticsBackfill(db, {
-  project, uid, firstWeek, throughWeek, readPage, dailyReads = macDailyReads, dailyWeeks = 5,
+  project, uid, firstWeek, throughWeek, readPage, readDayPage, dailyReads = macDailyReads, dailyWeeks = 5,
   currentTime = Date.now,
 }) {
   const first = parseReadingRollupMonday(firstWeek);
@@ -107,20 +110,53 @@ export async function stageReadingStatisticsBackfill(db, {
   const getBudget = (day) => db.prepare('SELECT reads, weeks FROM budgets WHERE project = ? AND day = ?').get(project, day);
   const initBudget = (day) => db.prepare('INSERT OR IGNORE INTO budgets(project, day) VALUES (?, ?)').run(project, day);
   const startDay = quotaDate.format(currentTime());
+  const finished = (state) => state.ingested && (!readDayPage || state.day_ingested);
   let stagedWeeks = 0;
   while (quotaDate.format(currentTime()) === startDay) {
     const state = job();
-    if (state.ingested || state.blocked_reason) break;
+    if (finished(state) || state.blocked_reason) break;
+    const scanDays = Boolean(state.ingested);
     const limit = atomic(db, () => {
       const now = currentTime();
       if (quotaDate.format(now) !== startDay || quotaDate.format(now + quotaResetBufferMs) !== startDay) return 0;
       initBudget(startDay);
-      const amount = Math.max(0, Math.min(pageLimit, dailyReads - getBudget(startDay).reads));
+      const amount = Math.max(0, Math.min(scanDays ? 8 : pageLimit, dailyReads - getBudget(startDay).reads));
       db.prepare('UPDATE budgets SET reads = reads + ? WHERE project = ? AND day = ?').run(amount, project, startDay);
       return amount;
     });
     if (limit === 0) break;
     // Reservations are conservative, including when the final or failed page is shorter.
+    if (scanDays) {
+      const cutoff = readCutoff(state);
+      const { entries, cursor, done } = await readDayPage(state.day_cursor, limit, cutoff);
+      const committed = atomic(db, () => {
+        const current = job();
+        if (current.blocked_reason) return false;
+        if (!current.ingested || current.day_cursor !== state.day_cursor || current.day_ingested) {
+          throw new Error('The backfill was advanced by another process.');
+        }
+        const find = db.prepare('SELECT payload FROM sessions WHERE project = ? AND uid = ? AND id = ?');
+        const insert = db.prepare('INSERT INTO sessions(project, uid, id, payload) VALUES (?, ?, ?, ?)');
+        for (const { session, firstReceivedAt } of entries) {
+          const received = new Timestamp(firstReceivedAt.seconds, firstReceivedAt.nanoseconds);
+          if (!isReadingSessionV1(session) || received > cutoff) throw new Error('Invalid reading day snapshot.');
+          const payload = JSON.stringify(toReadingSessionPayload(session));
+          const previous = find.get(project, uid, session.sessionId);
+          if (previous && previous.payload !== payload) throw new Error('Conflicting reading day session.');
+          if (!previous) {
+            if (current.next_week !== current.first_week) {
+              throw new Error('Existing drafts predate day-source support. Preserve this database and use a new --state path.');
+            }
+            insert.run(project, uid, session.sessionId, payload);
+          }
+        }
+        db.prepare('UPDATE jobs SET day_cursor = ?, day_ingested = ? WHERE project = ? AND uid = ?')
+          .run(cursor, Number(done), project, uid);
+        return true;
+      });
+      if (!committed) break;
+      continue;
+    }
     const { documents, readTime } = await readPage(state.cursor, limit);
     const cutoff = readCutoff(state) ?? readTime;
     if (!(cutoff instanceof Timestamp) || lastBoundary > cutoff.toMillis()) {
@@ -153,7 +189,7 @@ export async function stageReadingStatisticsBackfill(db, {
     if (!staged) break;
   }
 
-  if (job().ingested && Date.parse(job().next_week) <= through && (getBudget(startDay)?.weeks ?? 0) < dailyWeeks) {
+  if (finished(job()) && Date.parse(job().next_week) <= through && (getBudget(startDay)?.weeks ?? 0) < dailyWeeks) {
     const sessions = db.prepare('SELECT payload FROM sessions WHERE project = ? AND uid = ? ORDER BY id COLLATE BINARY')
       .all(project, uid).map(({ payload }) => JSON.parse(payload));
     while (quotaDate.format(currentTime()) === startDay) {
@@ -181,7 +217,7 @@ export async function stageReadingStatisticsBackfill(db, {
   const state = job();
   const budget = getBudget(startDay);
   return {
-    status: state.blocked_reason ? 'blocked' : Date.parse(state.next_week) > through ? 'complete' : state.ingested ? 'staging' : 'reading',
+    status: state.blocked_reason ? 'blocked' : !finished(state) ? 'reading' : Date.parse(state.next_week) > through ? 'complete' : 'staging',
     ...(state.blocked_reason ? { blocked: { documentId: state.blocked_document, reason: state.blocked_reason } } : {}),
     nextWeek: state.next_week,
     stagedWeeks,
@@ -191,13 +227,15 @@ export async function stageReadingStatisticsBackfill(db, {
 }
 
 function loadHandoff(db, project, uid, firstWeek, nextWeek, pilotTuesday) {
-  const sourceCutoff = readCutoff(db.prepare('SELECT * FROM jobs WHERE project = ? AND uid = ?').get(project, uid));
+  const job = db.prepare('SELECT * FROM jobs WHERE project = ? AND uid = ?').get(project, uid);
+  const sourceCutoff = readCutoff(job);
   const weeks = db.prepare('SELECT payload FROM weeks WHERE project = ? AND uid = ? AND week >= ? AND week < ? ORDER BY week')
     .all(project, uid, firstWeek, nextWeek).map(({ payload }) => JSON.parse(payload));
   const sessions = db.prepare('SELECT payload FROM sessions WHERE project = ? AND uid = ? ORDER BY id COLLATE BINARY')
     .all(project, uid).map(({ payload }) => JSON.parse(payload));
   return {
     weeks, nextWeek, sourceCutoff, carry: createReadingRollupCarry(sessions, nextWeek), pilotTuesday,
+    coversDaySource: Boolean(job.day_ingested),
     coversHistoryStart: rollupCoversHistoryStart(sessions, firstWeek),
     evidenceCompatible: sessions.every((session) => session.completionRoundNumber === undefined),
   };
@@ -257,6 +295,20 @@ async function main() {
             updatedAt: document.updateTime,
             data: document.data(),
           })),
+        };
+      },
+      async readDayPage(cursor, limit, cutoff) {
+        const query = readingDayWindowQuery(db, uid, Timestamp.fromMillis(0), cutoff);
+        const point = cursor ? JSON.parse(cursor) : null;
+        const page = await (point
+          ? query.startAfter(new Timestamp(...point.updated), new Timestamp(...point.first), point.id)
+          : query).limit(limit).get();
+        const last = page.docs.at(-1);
+        const stamp = ({ seconds, nanoseconds }) => [seconds, nanoseconds];
+        return {
+          entries: page.docs.flatMap((document) => readReadingDayWindowMemberRows(document, undefined, cutoff)),
+          cursor: last ? JSON.stringify({ updated: stamp(last.get('lastReceivedAt')), first: stamp(last.get('firstReceivedAt')), id: last.id }) : cursor,
+          done: page.size < limit,
         };
       },
     });

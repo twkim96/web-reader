@@ -36,6 +36,9 @@ export type ReaderBootstrapTraceEvent = {
   queryAttempts?: number;
   completedQueries?: number;
   returnedDocuments?: number;
+  dayDocuments?: number;
+  daySessionEntries?: number;
+  dayApproximateBytes?: number;
   emptyQueries?: number;
   auditProbe?: 'matched' | 'mismatch' | 'failed';
   fullScanReason?: ReadingStatisticsFullScanReason;

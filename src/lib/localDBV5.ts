@@ -19,6 +19,8 @@ import {
   V11_READING_SESSIONS_STORE,
   V12_READING_STATISTICS_SYNC_STORE,
   readingStatisticsArchiveKey,
+  readingStatisticsDayBaselineKey,
+  readingStatisticsDayStorageKey,
   readingStatisticsRecentKey,
   V14_BOOK_COVERS_STORE,
 } from './localDBSchema';
@@ -532,7 +534,7 @@ export const removeBookAndAnnotationsV8 = (
 const deleteByOwnerIndex = async (
   transaction: IDBPTransaction<unknown, [string], 'readwrite'>,
   storeName: string,
-  ownerKey: OwnerKey,
+  ownerKey: string,
 ) => {
   const store = transaction.objectStore(storeName);
   if (!store.indexNames.contains('by-owner')) return;
@@ -568,6 +570,9 @@ export const deleteOwnerLocalDataV5 = async (ownerKey: OwnerKey) => {
   for (const storeName of indexedStores) {
     const tx = db.transaction(storeName, 'readwrite');
     await deleteByOwnerIndex(tx, storeName, ownerKey);
+    if (storeName === V11_READING_SESSIONS_STORE) {
+      await deleteByOwnerIndex(tx, storeName, readingStatisticsDayStorageKey(ownerKey));
+    }
     await tx.done;
   }
   for (const storeName of [
@@ -589,5 +594,7 @@ export const deleteOwnerLocalDataV5 = async (ownerKey: OwnerKey) => {
   await statisticsSyncTx.objectStore(V12_READING_STATISTICS_SYNC_STORE).delete(ownerKey);
   await statisticsSyncTx.objectStore(V12_READING_STATISTICS_SYNC_STORE).delete(readingStatisticsArchiveKey(ownerKey));
   await statisticsSyncTx.objectStore(V12_READING_STATISTICS_SYNC_STORE).delete(readingStatisticsRecentKey(ownerKey));
+  await statisticsSyncTx.objectStore(V12_READING_STATISTICS_SYNC_STORE).delete(readingStatisticsDayStorageKey(ownerKey));
+  await statisticsSyncTx.objectStore(V12_READING_STATISTICS_SYNC_STORE).delete(readingStatisticsDayBaselineKey(ownerKey));
   await statisticsSyncTx.done;
 };

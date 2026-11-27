@@ -3,11 +3,12 @@ import {
 } from 'firebase-admin/firestore';
 import { APP_ID } from '../../lib/appIdentity';
 import { getPublicBookMetadataAliasCandidates } from '../../lib/publicBookMetadataSchema';
-import { buildReadingStatistics, getReadingSessionLocalDate, isReadingSessionV1, toReadingSessionPayload, type ReadingSessionV1 } from '../../lib/readingStatistics';
+import { buildReadingStatistics, getReadingSessionLocalDate, isReadingSessionV1, sameReadingSessionPayload, toReadingSessionPayload, type ReadingSessionV1 } from '../../lib/readingStatistics';
 import { computeReadingFileRollups, mergeReadingFileRollups } from '../../lib/readingStatisticsRollup';
-import { selectReadingRollupTail } from '../../lib/readingRollupBootstrap';
+import { compareReadingUploadTimes, selectReadingRollupTail, type ReadingUploadTime } from '../../lib/readingRollupBootstrap';
 import { addReadingRollupPage, sortReadingRollupCarry } from '../readingRollupInputs';
 import { readPublishedReadingEvidenceInputs } from '../readingRollupRead';
+import { readingDaySource, readingDayWindowQuery, readReadingDayWindowMemberRows } from '../readingStatisticsDayStore';
 import { loadSocialCatalog, resolveSocialReadingTitle, resolveSocialWork } from './catalog';
 import { reportMyPageApiTiming, type ReadingEvidenceRoute } from './performance';
 
@@ -30,7 +31,7 @@ type Summary = HistoryEvidence & {
   conflictedWorks: Set<string>;
   cursor: Cursor | null;
   builtAt: number;
-  published?: true;
+  legacyOnly?: true;
 };
 type FullScanReason =
   | 'fullScanCold'
@@ -59,6 +60,12 @@ const MAX_HISTORY_DOCUMENTS = 12_000;
 const MAX_HISTORY_BYTES = 4 * 1024 * 1024;
 const MAX_FILE_EVIDENCE_BYTES = 2 * 1024 * 1024;
 const MAX_PUBLISHED_DELTA_ROWS = 1_200;
+const BOUNDED_PAGE_SIZE = 32;
+type EvidenceRow = { session: ReadingSessionV1; firstReceivedAt: ReadingUploadTime };
+type EvidenceSource = {
+  query: Query;
+  read: (doc: QueryDocumentSnapshot, data: Record<string, unknown>) => EvidenceRow[];
+};
 
 const compareIds = (left: string, right: string) => Buffer.compare(Buffer.from(left), Buffer.from(right));
 const compareCursors = (left: Cursor, right: Cursor) => left.stamp.seconds - right.stamp.seconds
@@ -95,8 +102,7 @@ async function summary(db: Firestore, uid: string, route?: ReadingEvidenceRoute)
   return entry.promise;
 }
 
-function parseSession(document: QueryDocumentSnapshot) {
-  const value = document.data();
+function parseSession(document: QueryDocumentSnapshot, value = document.data()) {
   if (typeof value.startedAtClient !== 'number' || typeof value.timezoneOffsetMinutes !== 'number') return null;
   let localDate: string;
   try { localDate = getReadingSessionLocalDate(value.startedAtClient, value.timezoneOffsetMinutes); } catch { return null; }
@@ -104,6 +110,60 @@ function parseSession(document: QueryDocumentSnapshot) {
   if (!isReadingSessionV1(session) || session.sessionId !== document.id) return null;
   return toReadingSessionPayload(session);
 }
+
+async function readBoundedEvidenceRows(
+  transaction: Transaction, sources: EvidenceSource[], maxRows: number, counts: ReadCounts,
+  carry: readonly ReadingSessionV1[] = [],
+) {
+  const seen = new Map(carry.map((session) => [session.sessionId, session]));
+  const rows: EvidenceRow[] = [];
+  let documents = 0;
+  let entries = 0;
+  let bytes = 0;
+  for (const { query, read } of sources) {
+    let cursor: QueryDocumentSnapshot | undefined;
+    for (;;) {
+      const limit = Math.min(BOUNDED_PAGE_SIZE, maxRows - documents + 1);
+      const page = await transaction.get((cursor ? query.startAfter(cursor) : query).limit(limit));
+      counts.scanQueries++;
+      counts.scanDocuments += page.size;
+      counts.emptyScanQueries += Number(page.empty);
+      documents += page.size;
+      if (documents > maxRows) throw new RangeError('Reading evidence document limit');
+      for (const doc of page.docs) {
+        const data = doc.data();
+        bytes += Buffer.byteLength(JSON.stringify(data));
+        if (bytes > MAX_HISTORY_BYTES) throw new RangeError('Reading evidence byte limit');
+        const incoming = read(doc, data);
+        entries += incoming.length;
+        if (entries > maxRows) throw new RangeError('Reading evidence entry limit');
+        for (const row of incoming) {
+          const { session } = row;
+          const previous = seen.get(session.sessionId);
+          if (previous) {
+            if (!sameReadingSessionPayload(previous, session)) throw new Error('Conflicting reading evidence');
+            continue;
+          }
+          seen.set(session.sessionId, session);
+          rows.push(row);
+        }
+      }
+      if (page.size < limit) break;
+      cursor = page.docs[page.size - 1];
+    }
+  }
+  return rows;
+}
+
+function legacyEvidenceRows(doc: QueryDocumentSnapshot, data: Record<string, unknown>): EvidenceRow[] {
+  const session = parseSession(doc, data);
+  // The full history also includes legacy sessions without a receipt timestamp.
+  const firstReceivedAt = data.uploadedAtServer instanceof Timestamp ? data.uploadedAtServer : new Timestamp(0, 0);
+  return session ? [{ session, firstReceivedAt }] : [];
+}
+
+const legacySource = (db: Firestore, uid: string) =>
+  db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`);
 
 async function scanSessions(transaction: Transaction, source: Query, counts: ReadCounts) {
   const ordered = source.limit(PAGE_SIZE);
@@ -245,15 +305,24 @@ async function resolveReadingTitles(db: Firestore, files: Map<string, FileEviden
 async function publishedFileEvidence(db: Firestore, uid: string, counts: ReadCounts): Promise<Map<string, FileEvidence> | null> {
   const rollup = await readPublishedReadingEvidenceInputs(db, uid);
   if (!rollup) return null;
-  const page = await db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`)
-    .orderBy('uploadedAtServer').orderBy(FieldPath.documentId()).startAfter(rollup.sourceThrough)
-    .endAt(new Timestamp(253_402_300_799, 999_999_999)).limit(MAX_PUBLISHED_DELTA_ROWS + 1).get();
-  counts.scanQueries++;
-  counts.scanDocuments += page.size;
-  if (page.empty) counts.emptyScanQueries++;
-  if (page.size > MAX_PUBLISHED_DELTA_ROWS) return null;
-  const delta = page.docs.map(parseSession);
-  const sessions = delta.filter((session): session is ReadingSessionV1 => session !== null);
+  const collection = legacySource(db, uid);
+  const through = rollup.readTime;
+  if (compareReadingUploadTimes(rollup.sourceThrough, through) > 0) return null;
+  // Freeze both sources and all pages so a container append cannot move an
+  // unread part past one page's cursor while another page is being read.
+  const rows = await db.runTransaction((transaction) => readBoundedEvidenceRows(transaction, [
+    {
+      query: collection.orderBy('uploadedAtServer').orderBy(FieldPath.documentId())
+        .startAfter(rollup.sourceThrough).endAt(through),
+      read: legacyEvidenceRows,
+    },
+    {
+      query: readingDayWindowQuery(db, uid, rollup.sourceThrough, through),
+      read: (doc, data) => readReadingDayWindowMemberRows({ id: doc.id, data: () => data }, rollup.sourceThrough, through),
+    },
+  ], MAX_PUBLISHED_DELTA_ROWS, counts, rollup.carry.sessions), { readOnly: true, readTime: through });
+  const sessions = rows.sort((a, b) => compareReadingUploadTimes(a.firstReceivedAt, b.firstReceivedAt)
+    || compareIds(a.session.sessionId, b.session.sessionId)).map(({ session }) => session);
   const closedDay = new Date(Date.parse(rollup.nextWeek) - 86_400_000).toISOString().slice(0, 10);
   const accepted = selectReadingRollupTail({ lastDay: closedDay, sampleFloor: rollup.carry.sampleFloor }, rollup.carry.sessions, sessions);
   const combined = sortReadingRollupCarry(addReadingRollupPage(rollup.carry, accepted, rollup.nextWeek));
@@ -266,6 +335,13 @@ async function publishedFileEvidence(db: Firestore, uid: string, counts: ReadCou
   }]));
 }
 
+async function resolveUnretainedSummary(db: Firestore, files: Map<string, FileEvidence> | null, counts: ReadCounts): Promise<Summary> {
+  const resolved = files ? await resolveFileEvidence(db, files, counts)
+    : { works: new Map(), totals: new Map(), conflictedWorks: new Set<string>() };
+  return { ...resolved, cursor: null, fileEvidence: null, documentCount: 0, fullScanAt: 0,
+    rawHistory: null, builtAt: Date.now() };
+}
+
 async function buildSummary(
   db: Firestore,
   uid: string,
@@ -274,12 +350,9 @@ async function buildSummary(
 ): Promise<Summary> {
   if (process.env.NEXT_PUBLIC_ENABLE_READING_STATS_ROLLUP_READS === '1') {
     const rolled = await publishedFileEvidence(db, uid, counts).catch(() => null);
-    const resolved = rolled ? await resolveFileEvidence(db, rolled, counts)
-      : { works: new Map(), totals: new Map(), conflictedWorks: new Set<string>() };
-    return { ...resolved, published: true, cursor: null, fileEvidence: null, documentCount: 0, fullScanAt: 0,
-      rawHistory: null, builtAt: Date.now() };
+    return resolveUnretainedSummary(db, rolled, counts);
   }
-  const collection = db.collection(`artifacts/${APP_ID}/users/${uid}/libraries/local/readingStatsV1`);
+  const collection = legacySource(db, uid);
   const latest = await collection.orderBy('uploadedAtServer', 'desc').orderBy(FieldPath.documentId(), 'desc')
     .select('uploadedAtServer').limit(1).get();
   const last = latest.docs[0];
@@ -287,23 +360,43 @@ async function buildSummary(
   const stamp = last?.get('uploadedAtServer');
   const cursor = stamp instanceof Timestamp ? { stamp, id: last.id } : null;
   const cached = await previous?.catch(() => null) ?? null;
-  const retained = cached?.published ? null : cached;
+  const retained = cached?.legacyOnly ? cached : null;
   const now = Date.now();
   const unchanged = cursor && retained?.cursor
     ? compareCursors(cursor, retained.cursor) === 0
     : !last && retained?.documentCount === 0;
-  if (retained && unchanged && now - retained.builtAt < REBUILD_SUMMARY_MS
-    && now - retained.fullScanAt < FULL_SCAN_MS) {
-    counts.markerOnly = 1;
-    return retained;
-  }
-
-  // Check counts and pages against the same snapshot as the latest cursor.
+  // Check for V2 at the same snapshot as the legacy cursor, even on a cache
+  // recheck. Appending to a day part never advances the legacy marker.
   // Resolving titles happens after the transaction and can use the catalog cache.
-  const history = await db.runTransaction(
-    (transaction) => readHistory(transaction, collection, cursor, retained, now, counts),
-    { readOnly: true, readTime: latest.readTime },
-  );
+  const through = latest.readTime;
+  const daySource = readingDaySource(db, uid);
+  const result = await db.runTransaction(async (transaction) => {
+    const dayMarker = await transaction.get(daySource.select().limit(1));
+    counts.markerDocuments += dayMarker.size;
+    if (!dayMarker.empty) {
+      const rows = await readBoundedEvidenceRows(transaction, [
+        { query: collection.orderBy(FieldPath.documentId()), read: legacyEvidenceRows },
+        {
+          query: daySource.orderBy(FieldPath.documentId()),
+          read: (doc, data) => readReadingDayWindowMemberRows({ id: doc.id, data: () => data }, undefined, through),
+        },
+      ], MAX_HISTORY_DOCUMENTS, counts).catch(() => null);
+      return { mixed: rows };
+    }
+    if (retained && unchanged && now - retained.builtAt < REBUILD_SUMMARY_MS
+      && now - retained.fullScanAt < FULL_SCAN_MS) {
+      counts.markerOnly = 1;
+      return { cached: retained };
+    }
+    return { history: await readHistory(transaction, collection, cursor, retained, now, counts) };
+  }, { readOnly: true, readTime: through });
+  if (result.cached) return result.cached;
+  if (!result.history) {
+    const files = result.mixed ? buildFileEvidence(result.mixed.map(({ session }) => session)
+      .sort((a, b) => compareIds(a.sessionId, b.sessionId)), counts) : null;
+    return resolveUnretainedSummary(db, files, counts);
+  }
+  const { history } = result;
   const { documentCount, fullScanAt } = history;
   const previousEvidence = 'fileEvidence' in history ? history.fileEvidence
     : history.sessions === retained?.rawHistory?.sessions ? retained?.fileEvidence : null;
@@ -317,7 +410,8 @@ async function buildSummary(
     : documentCount <= MAX_HISTORY_DOCUMENTS && history.bytes <= MAX_HISTORY_BYTES
       ? { sessions: history.sessions, bytes: history.bytes } : null;
   counts.retainedRawBytes = rawHistory?.bytes ?? 0;
-  return { ...await resolveFileEvidence(db, files, counts), cursor, fileEvidence, documentCount, fullScanAt, rawHistory, builtAt: now };
+  return { ...await resolveFileEvidence(db, files, counts), cursor, fileEvidence, documentCount, fullScanAt, rawHistory, builtAt: now,
+    legacyOnly: true };
 }
 
 async function resolveFileEvidence(db: Firestore, files: Map<string, FileEvidence>, counts: ReadCounts) {

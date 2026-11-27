@@ -26,6 +26,9 @@ export const V11_READING_SESSIONS_STORE = 'reading-sessions-v11';
 export const V12_READING_STATISTICS_SYNC_STORE = 'reading-statistics-sync-v12';
 export const readingStatisticsArchiveKey = (ownerKey: string) => [ownerKey, 'published-reading'];
 export const readingStatisticsRecentKey = (ownerKey: string) => [ownerKey, 'recent-reading'];
+// Keep the v2 queue out of the legacy owner's indexes without a DB upgrade.
+export const readingStatisticsDayStorageKey = (ownerKey: string) => `${ownerKey}|reading-days-v2`;
+export const readingStatisticsDayBaselineKey = (ownerKey: string) => [ownerKey, 'reading-day-baseline'];
 export const V13_READING_STATISTICS_LEASES_STORE = 'reading-statistics-leases-v13';
 export const V14_BOOK_COVERS_STORE = 'book-covers-v14';
 

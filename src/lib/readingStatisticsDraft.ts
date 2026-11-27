@@ -52,8 +52,8 @@ export const recoverReadingStatisticsDraft = async <T extends {
   }
 };
 
-export const getReadingStatisticsDraftPrefix = (ownerKey: OwnerKey, deviceId: string) => (
-  `${DRAFT_PREFIX}${encodeURIComponent(ownerKey)}:${encodeURIComponent(deviceId)}:`
+export const getReadingStatisticsDraftPrefix = (ownerKey: OwnerKey, deviceId: string, format: 1 | 2 = 1) => (
+  `reading_stats_draft_v${format}:${encodeURIComponent(ownerKey)}:${encodeURIComponent(deviceId)}:`
 );
 
 export const getReadingStatisticsDraftKey = (
@@ -61,8 +61,9 @@ export const getReadingStatisticsDraftKey = (
   deviceId: string,
   bookId: string,
   sessionId: string,
+  format: 1 | 2 = 1,
 ) => (
-  `${getReadingStatisticsDraftPrefix(ownerKey, deviceId)}${encodeURIComponent(bookId)}:${encodeURIComponent(sessionId)}`
+  `${getReadingStatisticsDraftPrefix(ownerKey, deviceId, format)}${encodeURIComponent(bookId)}:${encodeURIComponent(sessionId)}`
 );
 
 export const getReadingStatisticsDraftRecoveryEnd = (draft: {

@@ -5,6 +5,7 @@ import {
   V5_SYNC_CONFLICTS_STORE,
   V10_ANNOTATION_BOOK_DELETIONS_STORE,
   V11_READING_SESSIONS_STORE,
+  readingStatisticsDayStorageKey,
   V8_ANNOTATIONS_STORE,
 } from './localDBSchema';
 import { getReadingStatisticsHydrationMetricsV12 } from './localReadingStatistics';
@@ -117,7 +118,7 @@ export const collectStorageMaintenanceDiagnosticsV1 = async (
   const monotonicNow = options.monotonicNow ?? (() => performance.now());
   const startedAt = monotonicNow();
   const db = await initDB();
-  const [outbox, conflicts, remoteHeads, annotations, deletionMarkers, sessions, hydration] =
+  const [outbox, conflicts, remoteHeads, annotations, deletionMarkers, legacySessions, daySessions, hydration] =
     await Promise.all([
       db.getAll(V5_OUTBOX_STORE, readOwnerRange(ownerKey)) as Promise<SyncOutboxEventV5[]>,
       db.getAll(V5_SYNC_CONFLICTS_STORE, readOwnerRange(ownerKey)) as Promise<SyncConflictV5[]>,
@@ -128,9 +129,11 @@ export const collectStorageMaintenanceDiagnosticsV1 = async (
       db.getAllFromIndex(V10_ANNOTATION_BOOK_DELETIONS_STORE, 'by-owner', ownerKey) as
         Promise<unknown[]>,
       db.getAllFromIndex(V11_READING_SESSIONS_STORE, 'by-owner', ownerKey) as Promise<unknown[]>,
+      db.getAllFromIndex(V11_READING_SESSIONS_STORE, 'by-owner', readingStatisticsDayStorageKey(ownerKey)) as Promise<unknown[]>,
       getReadingStatisticsHydrationMetricsV12(ownerKey),
     ]);
   const aggregationStartedAt = monotonicNow();
+  const sessions = [...legacySessions, ...daySessions];
   const validSessions = sessions.filter(isReadingSessionV1);
   try {
     buildReadingStatistics(validSessions);

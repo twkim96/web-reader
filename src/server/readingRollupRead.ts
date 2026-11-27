@@ -37,7 +37,8 @@ async function readFileTotals(db: Firestore, uid: string) {
   if (snapshot.get('throughWeek') !== readingRollupDayKey(range.through)) return null;
   const payload = JSON.parse(snapshot.get('payload'));
   const files = parseReadingFileRollups(payload.files);
-  return files ? { range, files, carry: payload.carry as unknown, books: payload.books as unknown, evidenceCompatible: payload.evidenceCompatible as unknown } : null;
+  return files ? { range, files, readTime: snapshot.readTime,
+    carry: payload.carry as unknown, books: payload.books as unknown, evidenceCompatible: payload.evidenceCompatible as unknown } : null;
 }
 
 export async function readPublishedReadingFiles(db: Firestore, uid: string) {
@@ -54,7 +55,7 @@ export async function readPublishedReadingEvidenceInputs(db: Firestore, uid: str
   const carry = published.carry as ReadingRollupCarry | undefined;
   if (!carry || !Number.isSafeInteger(carry.sampleFloor) || !Array.isArray(carry.sessions) || !carry.sessions.every(isReadingSessionV1)) return null;
   return { files, carry, nextWeek: readingRollupDayKey(range.through + week),
-    sourceThrough: published.range.sourceThrough };
+    sourceThrough: published.range.sourceThrough, readTime: published.readTime };
 }
 
 export async function hasPublishedReadingAuditCoverage(db: Firestore, uid: string) {

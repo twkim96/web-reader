@@ -7,11 +7,15 @@ import {
   adoptLegacyReadingStatisticsCursorV12,
   beginReadingStatisticsRecentRecovery,
   deferReadingSessionSyncV11,
+  finalizeReadingDayTail,
   getReadingStatisticsHydrationPlanV12,
   getPendingReadingSessionsV11,
+  hydrateReadingDayReceivePage,
   hydrateRemoteReadingSessionsPageV12,
   installReadingStatisticsBootstrap,
   markReadingSessionSyncedV11,
+  needsReadingDayBaseline,
+  prepareReadingDayReceive,
   reconcileUploadedReadingSessionConflictV11,
   recordReadingStatisticsHydrationMetricsV12,
   recordReadingStatisticsVerifiedAuditV12,
@@ -30,6 +34,8 @@ import {
   verifyLegacyReadingStatisticsCursorV1,
   verifyRemoteReadingStatisticsAuditV1,
 } from '../lib/readingStatisticsSync';
+import { readingDayBucketFromSessionId, readingDayReadsEnabled } from '../lib/readingStatisticsDay';
+import { getReadingDayReceivePage, readReadingDayClockSample, uploadReadingDaySession } from '../lib/readingStatisticsDaySync';
 import {
   notifyReadingStatisticsChange,
   notifyReadingStatisticsServerCheck,
@@ -213,7 +219,9 @@ export const useReadingStatisticsSync = (
             if (!await hasClaimLeadership()) return 'stopped';
             try {
               const requestStartedAt = Date.now();
-              const result = await uploadReadingSessionV1(db, user.uid, session);
+              const result = readingDayBucketFromSessionId(session.sessionId)
+                ? await uploadReadingDaySession(user, session)
+                : await uploadReadingSessionV1(db, user.uid, session);
               const requestCompletedAt = Date.now();
               if (!await hasClaimLeadership()) return 'stopped';
               if (result.status === 'conflict') {
@@ -248,13 +256,9 @@ export const useReadingStatisticsSync = (
                   session.deviceId,
                   async () => {
                     if (!await hasClaimLeadership()) return null;
-                    const sample = await readReadingStatisticsClockSampleV1(
-                      db,
-                      user.uid,
-                      session.sessionId,
-                      requestStartedAt,
-                      requestCompletedAt,
-                    );
+                    const sample = 'part' in result
+                      ? await readReadingDayClockSample(db, user.uid, session.sessionId, result.part, requestStartedAt, requestCompletedAt)
+                      : await readReadingStatisticsClockSampleV1(db, user.uid, session.sessionId, requestStartedAt, requestCompletedAt);
                     return await hasClaimLeadership() ? sample : null;
                   },
                 ).then((sample) => {
@@ -299,6 +303,9 @@ export const useReadingStatisticsSync = (
             let remoteReadAttemptCount = 0;
             let remoteReadCount = 0;
             let returnedDocuments = 0;
+            let dayDocuments = 0;
+            let daySessionEntries = 0;
+            let dayApproximateBytes = 0;
             let receivedHistoryDocuments = 0;
             let notifyOnExit = false;
             let emptyQueries = 0;
@@ -362,18 +369,21 @@ export const useReadingStatisticsSync = (
                 return true;
               };
               const previousPublication = 'state' in plan ? plan.published : undefined;
+              const missingDayBaseline = readingDayReadsEnabled() && previousPublication
+                ? await needsReadingDayBaseline(syncOwnerKey) : false;
               if ('reason' in plan && plan.reason === 'published-history-unavailable') {
                 if (!await recoverHistory()) {
                   hydrationStatus = 'lost-leadership';
                   refreshRequested = true;
                   return;
                 }
-              } else if (allowPublishedAudit && shouldCheckReadingPublication(
+              } else if (allowPublishedAudit && (missingDayBaseline || shouldCheckReadingPublication(
                 Date.now(), lastPublicationAttempt, previousPublication?.lastDay, refreshPublication,
-              )) {
+              ))) {
                 // Network failure leaves a previously verified publication usable.
                 lastPublicationAttempt = Date.now();
-                const bootstrap = await loadPublishedReadingBootstrap(syncOwnerKey, previousPublication).catch(() => undefined);
+                const bootstrap = await loadPublishedReadingBootstrap(syncOwnerKey, missingDayBaseline ? undefined : previousPublication)
+                  .catch(() => undefined);
                 if (!await hasClaimLeadership()) {
                   hydrationStatus = 'lost-leadership';
                   refreshRequested = true;
@@ -477,7 +487,8 @@ export const useReadingStatisticsSync = (
                 initialCursor = 'state' in plan ? plan.state.cursor : null;
               }
               queryMode = initialCursor ? 'cursor' : 'no-cursor';
-              const hydrationRun = await runReadingStatisticsHydrationAsLeader({
+              const useOrderedTail = Boolean(published && readingDayReadsEnabled());
+              const hydrationRun = useOrderedTail ? null : await runReadingStatisticsHydrationAsLeader({
                 ...hydrationOperations,
                 initialCursor,
                 uploadBetweenPages: async (limit) => {
@@ -494,8 +505,8 @@ export const useReadingStatisticsSync = (
                   }
                 },
               });
-              hydrationStatus = hydrationRun.status;
-              if (hydrationRun.status === 'lost-leadership') {
+              if (hydrationRun?.status === 'lost-leadership') {
+                hydrationStatus = 'lost-leadership';
                 refreshRequested = true;
                 return;
               }
@@ -504,7 +515,58 @@ export const useReadingStatisticsSync = (
                 refreshRequested = true;
                 return;
               }
-              setQuarantinedCount(hydrationRun.quarantinedCount);
+              let dayQuarantined = 0;
+              if (readingDayReadsEnabled()) {
+                const seconds = Math.floor(recentSince / 1000);
+                const recoveryFloor = { seconds, nanoseconds: (recentSince - seconds * 1000) * 1_000_000 };
+                let state = await prepareReadingDayReceive(syncOwnerKey, published?.sourceThrough ?? recoveryFloor, published, leaseClaim);
+                if (published) {
+                  // Keep legacy and day receipts in the same staged input set. The
+                  // order in which the two queries finish never decides the seam.
+                  for (;;) {
+                    if (!state || !await hasClaimLeadership()) {
+                      hydrationStatus = 'lost-leadership';
+                      refreshRequested = true;
+                      return;
+                    }
+                    const legacy = await getRemoteReadingSessionsPageV1(db, user.uid, state.legacyCursor, 100, undefined, instrumentation, {
+                      timestampRangeOnly: true, publishedThrough: published.sourceThrough, isLeader: hasClaimLeadership,
+                    });
+                    receivedHistoryDocuments += legacy.entries.length + legacy.quarantinedDocuments.length;
+                    state = await hydrateReadingDayReceivePage(syncOwnerKey, state, {
+                      entries: legacy.entries, nextLegacyCursor: legacy.nextCursor, done: legacy.fullHydrationCompleted,
+                      quarantinedParts: legacy.quarantinedDocuments.map(({ documentId }) => documentId),
+                    }, leaseClaim);
+                    hydrationPageCount++;
+                    if (legacy.fullHydrationCompleted && state) break;
+                  }
+                }
+                for (;;) {
+                  if (!state || !await hasClaimLeadership()) {
+                    hydrationStatus = 'lost-leadership';
+                    refreshRequested = true;
+                    return;
+                  }
+                  instrumentation.onReadAttempt();
+                  const page = await getReadingDayReceivePage(db, user.uid, state.floor, state.cursor);
+                  instrumentation.onReadSuccess(page.documents);
+                  dayDocuments += page.documents;
+                  daySessionEntries += page.entries.length;
+                  dayApproximateBytes += page.approximateBytes;
+                  receivedHistoryDocuments += page.documents;
+                  state = await hydrateReadingDayReceivePage(syncOwnerKey, state, page, leaseClaim);
+                  hydrationPageCount++;
+                  if (page.done && state) {
+                    dayQuarantined = state.quarantinedParts.length;
+                    break;
+                  }
+                }
+                if (published && !await finalizeReadingDayTail(syncOwnerKey, published, leaseClaim)) {
+                  throw new Error('독서 통계 발행본 또는 수신 자료 재확인이 필요합니다.');
+                }
+              }
+              hydrationStatus = 'completed';
+              setQuarantinedCount((hydrationRun?.quarantinedCount ?? 0) + dayQuarantined);
               if (receivedHistoryDocuments > 0 || publicationReceivePending || publishedBootstrap === 'fallback') {
                 notifyOnExit = true;
               }
@@ -535,6 +597,7 @@ export const useReadingStatisticsSync = (
                 queryAttempts: remoteReadAttemptCount,
                 completedQueries: remoteReadCount,
                 returnedDocuments,
+                ...(readingDayReadsEnabled() && { dayDocuments, daySessionEntries, dayApproximateBytes }),
                 emptyQueries,
                 auditProbe,
                 publishedAudit,

@@ -4,12 +4,15 @@ import {
   V12_READING_STATISTICS_SYNC_STORE,
   V13_READING_STATISTICS_LEASES_STORE,
   readingStatisticsArchiveKey,
+  readingStatisticsDayBaselineKey,
+  readingStatisticsDayStorageKey,
   readingStatisticsRecentKey,
 } from './localDBSchema';
 import { isGuestOwner, type OwnerKey } from './ownerIdentity';
 import { trackLocalCommit } from './localCommitTracker';
 import { canMergeLocalReadingWithPublication } from './readingRollupCalendar';
 import {
+  compareReadingSessionIds,
   createReadingRoundCompletionSession,
   isReadingSessionV1,
   sameReadingSessionPayload,
@@ -20,9 +23,11 @@ import {
 import {
   compareReadingUploadTimes, isReadingUploadTime, parseReadingRollupArchive,
   readReadingRollupCheckpoint, selectReadingRollupTail, type ReadingRollupArchive, type ReadingRollupBootstrap,
-  type ReadingRollupCheckpoint,
+  type ReadingRollupCheckpoint, type ReadingUploadTime,
 } from './readingRollupBootstrap';
 import { notifyReadingStatisticsChange } from './readingStatisticsWake';
+import { readingDayBucketFromSessionId, readingDayReadsEnabled, readingDayWritesEnabled, type ReadingDayEntry } from './readingStatisticsDay';
+import type { ReadingDayReceiveCursor } from './readingStatisticsDaySync';
 import type {
   ReadingStatisticsSyncLeaseClaimV13,
   ReadingStatisticsSyncLeaseV13,
@@ -66,6 +71,34 @@ const assertStoredSession = (value: unknown): StoredReadingSessionV11 => {
   const session = readStoredSession(value);
   if (!session) throw new Error('로컬 독서 통계 session이 손상되었습니다.');
   return session;
+};
+
+const readingSessionStorageKey = (ownerKey: OwnerKey, sessionId: string) => (
+  !isGuestOwner(ownerKey) && readingDayBucketFromSessionId(sessionId) ? readingStatisticsDayStorageKey(ownerKey) : ownerKey
+);
+
+type ReadingDayLocalState = {
+  floor: ReadingUploadTime;
+  publication?: ReadingRollupCheckpoint;
+  cursor: ReadingDayReceiveCursor | null;
+  completed: boolean;
+  quarantinedParts: string[];
+  legacyCursor: ReadingStatisticsRemoteCursorV12 | null;
+  legacyCompleted: boolean;
+  receiptCount: number;
+  ready: boolean;
+};
+
+const readDayState = (row: unknown): ReadingDayLocalState | null => {
+  const value = row as Partial<ReadingDayLocalState> | undefined;
+  if (!value || !isReadingUploadTime(value.floor) || typeof value.completed !== 'boolean'
+    || (value.publication && !readReadingRollupCheckpoint(value.publication))
+    || (value.cursor !== null && (!value.cursor || !isReadingUploadTime(value.cursor.updated) || typeof value.cursor.id !== 'string'))
+    || (value.legacyCursor !== null && !readRemoteCursor(value.legacyCursor))
+    || typeof value.legacyCompleted !== 'boolean' || typeof value.ready !== 'boolean'
+    || !Number.isSafeInteger(value.receiptCount) || Number(value.receiptCount) < 0
+    || !Array.isArray(value.quarantinedParts) || !value.quarantinedParts.every((id) => typeof id === 'string')) return null;
+  return value as ReadingDayLocalState;
 };
 
 export type ReadingStatisticsRemoteCursorV12 = {
@@ -287,7 +320,11 @@ const createEmptySyncMeta = (ownerKey: OwnerKey): ReadingStatisticsSyncMetaV12 =
   lastHydrationCompletedAt: 0,
 });
 
-type PublishedStoredSession = StoredReadingSessionV11 & { receivedWithPublication?: true };
+type PublishedStoredSession = StoredReadingSessionV11 & {
+  receivedWithPublication?: true;
+  tailReceivedAt?: ReadingUploadTime;
+  tailAdmitted?: boolean;
+};
 const hasPublicationReceipt = (session: PublishedStoredSession | null) => session?.receivedWithPublication === true;
 const hasPublishedCursor = (meta: ReadingStatisticsSyncMetaV12, received: readonly (StoredReadingSessionV11 | null)[]) =>
   meta.documentId === '__empty__' || Boolean(meta.archivedCursor) || received.some((row) => row?.sessionId === meta.documentId);
@@ -296,6 +333,172 @@ const samePublishedReading = (left: ReadingRollupCheckpoint, right: ReadingRollu
   left.firstDay === right.firstDay && left.lastDay === right.lastDay
   && compareReadingUploadTimes(left.sourceThrough, right.sourceThrough) === 0
   && left.sampleFloor === right.sampleFloor;
+
+const sameDayPublication = (left?: ReadingRollupCheckpoint, right?: ReadingRollupCheckpoint) =>
+  left && right ? samePublishedReading(left, right) : left === right;
+
+const dayBaselineIds = (value: unknown, publication?: ReadingRollupCheckpoint) => {
+  const baseline = value as { publication?: ReadingRollupCheckpoint; carrySessionIds?: unknown } | undefined;
+  const ids = baseline?.carrySessionIds;
+  const saved = baseline?.publication;
+  return publication && saved && isReadingUploadTime(saved.sourceThrough) && samePublishedReading(saved, publication)
+    && Array.isArray(ids) && ids.every((id) => typeof id === 'string') ? new Set<string>(ids) : undefined;
+};
+
+export async function needsReadingDayBaseline(ownerKey: OwnerKey) {
+  const db = await initDB();
+  const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE]);
+  const metaStore = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
+  const [meta, baseline] = await Promise.all([metaStore.get(ownerKey), metaStore.get(readingStatisticsDayBaselineKey(ownerKey))]);
+  const publication = meta && assertSyncMeta(meta).published;
+  if (!publication) return false;
+  const ids = dayBaselineIds(baseline, publication);
+  if (!ids) return true;
+  const store = tx.objectStore(V11_READING_SESSIONS_STORE);
+  return (await Promise.all([...ids].map((id) => store.getKey([ownerKey, id])))).some((key) => key === undefined);
+}
+
+export async function prepareReadingDayReceive(
+  ownerKey: OwnerKey, floor: ReadingUploadTime, publication: ReadingRollupCheckpoint | undefined,
+  leaseClaim: ReadingStatisticsSyncLeaseClaimV13, now = Date.now(),
+) {
+  const storageKey = readingStatisticsDayStorageKey(ownerKey);
+  const db = await initDB();
+  const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE, V13_READING_STATISTICS_LEASES_STORE], 'readwrite');
+  void tx.done.catch(() => undefined);
+  const meta = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
+  const store = tx.objectStore(V11_READING_SESSIONS_STORE);
+  const [previous, leased, rows] = await Promise.all([meta.get(storageKey),
+    hasCurrentStatisticsLease(tx.objectStore(V13_READING_STATISTICS_LEASES_STORE), ownerKey, leaseClaim, now),
+    store.index('by-owner').getAll(storageKey)]);
+  if (!leased) { await tx.done; return null; }
+  const saved = readDayState(previous);
+  if (saved && sameDayPublication(saved.publication, publication)
+    && (publication ? countDayReceipts(rows) === saved.receiptCount
+      : compareReadingUploadTimes(saved.cursor?.updated ?? saved.floor, floor) >= 0)) {
+    await tx.done;
+    return saved;
+  }
+  if (publication || saved?.publication || rows.some((row) => 'tailReceivedAt' in row)) {
+    await Promise.all(rows.map(assertStoredSession)
+      .filter(({ syncState }) => syncState === 'synced')
+      .map(({ sessionId }) => store.delete([storageKey, sessionId])));
+  }
+  const next: ReadingDayLocalState = { floor, publication, cursor: null, completed: false, quarantinedParts: [],
+    legacyCursor: null, legacyCompleted: false, ready: false, receiptCount: 0 };
+  await meta.put({ ...next, ownerKey: storageKey });
+  await tx.done;
+  if (publication || saved?.publication) notifyReadingStatisticsChange(ownerKey);
+  return next;
+}
+
+const sameDayCursor = (left: ReadingDayReceiveCursor | null, right: ReadingDayReceiveCursor | null) =>
+  left && right ? left.id === right.id && compareReadingUploadTimes(left.updated, right.updated) === 0 : left === right;
+
+const countDayReceipts = (rows: PublishedStoredSession[]) => rows.filter(({ tailReceivedAt }) => isReadingUploadTime(tailReceivedAt)).length;
+const sameLegacyTailCursor = (left: ReadingStatisticsRemoteCursorV12 | null, right: ReadingStatisticsRemoteCursorV12 | null) =>
+  left && right ? sameCursor(left, right) : left === right;
+
+export async function hydrateReadingDayReceivePage(
+  ownerKey: OwnerKey, expected: ReadingDayLocalState,
+  page: { entries: ReadingDayEntry[]; done: boolean; quarantinedParts: string[] } & (
+    { nextCursor: ReadingDayReceiveCursor | null } | { nextLegacyCursor: ReadingStatisticsRemoteCursorV12 | null }
+  ),
+  leaseClaim: ReadingStatisticsSyncLeaseClaimV13, now = Date.now(),
+) {
+  const storageKey = readingStatisticsDayStorageKey(ownerKey);
+  const db = await initDB();
+  const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE, V13_READING_STATISTICS_LEASES_STORE], 'readwrite');
+  void tx.done.catch(() => undefined);
+  const store = tx.objectStore(V11_READING_SESSIONS_STORE);
+  const meta = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
+  try {
+    const [raw, leased] = await Promise.all([meta.get(storageKey),
+      hasCurrentStatisticsLease(tx.objectStore(V13_READING_STATISTICS_LEASES_STORE), ownerKey, leaseClaim, now)]);
+    const state = readDayState(raw);
+    if (!leased || !state || compareReadingUploadTimes(state.floor, expected.floor) !== 0
+      || !sameDayPublication(state.publication, expected.publication) || !sameDayCursor(state.cursor, expected.cursor)
+      || !sameLegacyTailCursor(state.legacyCursor, expected.legacyCursor) || state.receiptCount !== expected.receiptCount) {
+      await tx.done;
+      return null;
+    }
+    let receiptCount = state.receiptCount;
+    for (const { session, firstReceivedAt } of page.entries) {
+      const key = [storageKey, session.sessionId];
+      const existing = await store.get(key) as PublishedStoredSession | undefined;
+      if (state.publication && existing?.tailReceivedAt) {
+        if (!sameReadingSessionPayload(existing, session)
+          || compareReadingUploadTimes(existing.tailReceivedAt, firstReceivedAt) !== 0) {
+          throw new Error('독서 통계 원본 수신 기록이 충돌했습니다.');
+        }
+        continue;
+      }
+      if (state.publication) receiptCount++;
+      await store.put({
+        ...toStoredSession(ownerKey, session, 'synced'), ownerKey: storageKey,
+        ...(state.publication && { tailReceivedAt: firstReceivedAt, tailAdmitted: false }),
+      });
+      if ('nextLegacyCursor' in page) {
+        const previous = readStoredSession(await store.get([ownerKey, session.sessionId]));
+        if (previous?.syncState === 'pending') await store.put(toStoredSession(ownerKey, session, 'synced'));
+      }
+    }
+    const next: ReadingDayLocalState = {
+      ...state, receiptCount, ready: state.ready && receiptCount === state.receiptCount,
+      ...('nextLegacyCursor' in page ? { legacyCursor: page.nextLegacyCursor, legacyCompleted: page.done }
+        : { cursor: page.nextCursor, completed: page.done }),
+      quarantinedParts: [...new Set([...state.quarantinedParts, ...page.quarantinedParts])].slice(-MAX_QUARANTINED_READING_STATISTICS_DOCUMENTS),
+    };
+    await meta.put({ ...next, ownerKey: storageKey });
+    await tx.done;
+    if (!state.publication && (page.entries.length || page.done && !state.completed)) notifyReadingStatisticsChange(ownerKey);
+    return next;
+  } catch (error) {
+    try { tx.abort(); } catch { /* The transaction may already have been aborted. */ }
+    throw error;
+  }
+}
+
+export async function finalizeReadingDayTail(
+  ownerKey: OwnerKey, publication: ReadingRollupCheckpoint, leaseClaim: ReadingStatisticsSyncLeaseClaimV13, now = Date.now(),
+) {
+  const db = await initDB();
+  const key = readingStatisticsDayStorageKey(ownerKey);
+  const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE, V13_READING_STATISTICS_LEASES_STORE], 'readwrite');
+  void tx.done.catch(() => undefined);
+  const store = tx.objectStore(V11_READING_SESSIONS_STORE);
+  const meta = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
+  const [stateRow, archive, current, leased, legacy, days] = await Promise.all([
+    meta.get(key), meta.get(readingStatisticsDayBaselineKey(ownerKey)), meta.get(ownerKey),
+    hasCurrentStatisticsLease(tx.objectStore(V13_READING_STATISTICS_LEASES_STORE), ownerKey, leaseClaim, now),
+    store.index('by-owner').getAll(ownerKey), store.index('by-owner').getAll(key),
+  ]);
+  const state = readDayState(stateRow);
+  const currentPublication = current && assertSyncMeta(current).published;
+  const baseline = dayBaselineIds(archive, currentPublication);
+  const carry = baseline ? legacy.filter((row) => baseline.has(row.sessionId)) : [];
+  if (!leased || !state?.completed || !state.legacyCompleted || !sameDayPublication(state.publication, publication)
+    || !sameDayPublication(currentPublication, publication)
+    || !baseline || carry.length !== baseline.size || state.receiptCount !== countDayReceipts(days)) {
+    await tx.done;
+    return false;
+  }
+  if (!state.ready) {
+    const received = (days as PublishedStoredSession[]).filter((row) => row.tailReceivedAt && !baseline.has(row.sessionId));
+    // UTF-8 lexicographic order is the same as Unicode code point order.
+    received.sort((a, b) => compareReadingUploadTimes(a.tailReceivedAt!, b.tailReceivedAt!)
+      || compareReadingSessionIds(a.sessionId, b.sessionId));
+    const accepted = new Set(selectReadingRollupTail(publication, carry, received).map(({ sessionId }) => sessionId));
+    for (const row of received) {
+      const tailAdmitted = accepted.has(row.sessionId);
+      if (row.tailAdmitted !== tailAdmitted) await store.put({ ...row, tailAdmitted });
+    }
+    await meta.put({ ...state, ownerKey: key, ready: true });
+  }
+  await tx.done;
+  if (!state.ready) notifyReadingStatisticsChange(ownerKey);
+  return true;
+}
 
 export async function installReadingStatisticsBootstrap(
   ownerKey: OwnerKey,
@@ -384,6 +587,7 @@ export async function installReadingStatisticsBootstrap(
     hydratedRemoteCount: [...locals.values()].filter(hasPublicationReceipt).length,
   } satisfies ReadingStatisticsSyncMetaV12);
   await metaStore.put({ ownerKey: archiveKey, archive });
+  await metaStore.put({ ownerKey: readingStatisticsDayBaselineKey(ownerKey), publication: published, carrySessionIds: [...carryIds] });
   if (recentRow) await metaStore.delete(recentKey);
   await tx.done;
   notifyReadingStatisticsChange(ownerKey);
@@ -472,7 +676,8 @@ const putReadingSession = async (
   const tx = db.transaction(V11_READING_SESSIONS_STORE, 'readwrite');
   void tx.done.catch(() => undefined);
   const store = tx.objectStore(V11_READING_SESSIONS_STORE);
-  const existingValue = await store.get([ownerKey, session.sessionId]);
+  const storageKey = readingSessionStorageKey(ownerKey, session.sessionId);
+  const existingValue = await store.get([storageKey, session.sessionId]);
   if (existingValue) {
     const existing = assertStoredSession(existingValue);
     if (!sameReadingSessionPayload(existing, session)) {
@@ -489,11 +694,11 @@ const putReadingSession = async (
       });
     }
   } else {
-    await store.add(toStoredSession(
+    await store.add({ ...toStoredSession(
       ownerKey,
       session,
       source === 'remote' || isGuestOwner(ownerKey) ? 'synced' : 'pending',
-    ));
+    ), ownerKey: storageKey });
   }
   await tx.done;
   notifyReadingStatisticsChange(ownerKey);
@@ -879,9 +1084,15 @@ export const hydrateRemoteReadingSessionsPageV12 = async (
       }
       for (const row of validatedQuarantinedDocuments) discarded.add(row.documentId);
       if (sessions.length) {
-        const received = (await sessionsStore.index('by-owner').getAll(ownerKey))
-          .map(assertStoredSession)
-          .filter(hasPublicationReceipt);
+        const index = sessionsStore.index('by-owner');
+        const dayKey = readingStatisticsDayStorageKey(ownerKey);
+        const [legacy, dayRows, dayMeta] = await Promise.all([
+          index.getAll(ownerKey), readingDayReadsEnabled() ? index.getAll(dayKey) : [],
+          readingDayReadsEnabled() ? metaStore.get(dayKey) : undefined,
+        ]);
+        const day = readDayState(dayMeta);
+        const received = visibleReadingSessions(ownerKey, legacy.map(assertStoredSession),
+          day && sameDayPublication(day.publication, published) ? dayRows : []).filter(hasPublicationReceipt);
         const receivedIds = new Set(received.map(({ sessionId }) => sessionId));
         const incoming = sessions.filter(({ sessionId }) => !receivedIds.has(sessionId));
         const open = new Set(selectReadingRollupTail(published, received, incoming).map(({ sessionId }) => sessionId));
@@ -1018,7 +1229,8 @@ export const reconcileUploadedReadingSessionConflictV11 = async (
     await tx.done;
     return false;
   }
-  const value = await store.get([ownerKey, expectedLocal.sessionId]);
+  const storageKey = readingSessionStorageKey(ownerKey, expectedLocal.sessionId);
+  const value = await store.get([storageKey, expectedLocal.sessionId]);
   if (!value) {
     await tx.done;
     return false;
@@ -1028,7 +1240,7 @@ export const reconcileUploadedReadingSessionConflictV11 = async (
     await tx.done;
     return false;
   }
-  await store.put(toStoredSession(ownerKey, remote, 'synced'));
+  await store.put({ ...toStoredSession(ownerKey, remote, 'synced'), ownerKey: storageKey });
   await tx.done;
   notifyReadingStatisticsChange(ownerKey);
   return true;
@@ -1084,6 +1296,19 @@ const sortLocalReadingSessions = (values: unknown[]) => values.map(assertStoredS
   left.startedAtClient - right.startedAtClient || left.sessionId.localeCompare(right.sessionId)
 ));
 
+function visibleReadingSessions(
+  ownerKey: OwnerKey, legacy: StoredReadingSessionV11[], dayValues: unknown[],
+) {
+  if (!dayValues.length) return legacy;
+  const rows = new Map(legacy.map((row) => [row.sessionId, row]));
+  for (const value of dayValues) {
+    const day = assertStoredSession(value) as PublishedStoredSession;
+    if (day.tailAdmitted === false) continue;
+    if (!rows.has(day.sessionId)) rows.set(day.sessionId, { ...day, ownerKey, ...(day.tailAdmitted && { receivedWithPublication: true }) });
+  }
+  return sortLocalReadingSessions([...rows.values()]);
+}
+
 export const getLocalReadingSessionsV11 = async (ownerKey: OwnerKey) => {
   let read = queuedSessionReads.get(ownerKey);
   if (read) {
@@ -1094,8 +1319,12 @@ export const getLocalReadingSessionsV11 = async (ownerKey: OwnerKey) => {
         // A caller arriving after transaction submission opens a new snapshot.
         queuedSessionReads.delete(ownerKey);
       });
-      const values = await db.getAllFromIndex(V11_READING_SESSIONS_STORE, 'by-owner', ownerKey);
-      return sortLocalReadingSessions(values);
+      const index = db.transaction(V11_READING_SESSIONS_STORE).store.index('by-owner');
+      const [values, days] = await Promise.all([
+        index.getAll(ownerKey),
+        isGuestOwner(ownerKey) ? [] : index.getAll(readingStatisticsDayStorageKey(ownerKey)),
+      ]);
+      return visibleReadingSessions(ownerKey, sortLocalReadingSessions(values), days);
     })();
     read = { result, shared: false };
     queuedSessionReads.set(ownerKey, read);
@@ -1112,23 +1341,42 @@ export async function getLocalReadingReportSnapshot(ownerKey: OwnerKey, verifyHi
   const db = await initDB();
   const tx = db.transaction([V11_READING_SESSIONS_STORE, V12_READING_STATISTICS_SYNC_STORE]);
   const metaStore = tx.objectStore(V12_READING_STATISTICS_SYNC_STORE);
-  const [values, value, recentRow, archiveKey] = await Promise.all([
-    tx.objectStore(V11_READING_SESSIONS_STORE).index('by-owner').getAll(ownerKey),
+  const index = tx.objectStore(V11_READING_SESSIONS_STORE).index('by-owner');
+  const includeDay = !isGuestOwner(ownerKey);
+  const dayKey = readingStatisticsDayStorageKey(ownerKey);
+  const [values, value, recentRow, archiveKey, dayValues, dayState, baselineRow] = await Promise.all([
+    index.getAll(ownerKey),
     metaStore.get(ownerKey), metaStore.get(readingStatisticsRecentKey(ownerKey)), metaStore.getKey(readingStatisticsArchiveKey(ownerKey)),
+    includeDay ? index.getAll(dayKey) : [], includeDay ? metaStore.get(dayKey) : undefined,
+    includeDay ? metaStore.get(readingStatisticsDayBaselineKey(ownerKey)) : undefined,
   ]);
   await tx.done;
-  const sessions = sortLocalReadingSessions(values);
+  const legacy = sortLocalReadingSessions(values);
   const meta = value ? assertSyncMeta(value) : null;
+  const published = meta?.published;
+  const day = readDayState(dayState);
+  const requiresDaySource = includeDay && (readingDayReadsEnabled() || day !== null || dayValues.length > 0);
+  const baseline = dayBaselineIds(baselineRow, published);
+  const baselineRows = published && requiresDaySource && baseline
+    ? legacy.filter(({ sessionId }) => baseline.has(sessionId)) : undefined;
+  const dayComplete = Boolean(day?.ready && day.completed && day.legacyCompleted
+    && sameDayPublication(day.publication, published) && baselineRows && baselineRows.length === baseline?.size
+    && countDayReceipts(dayValues) === day.receiptCount);
+  const selectedLegacy = published && requiresDaySource && baselineRows
+    ? [...baselineRows, ...legacy.filter(({ syncState }) => syncState === 'pending')]
+    : legacy;
+  const sessions = visibleReadingSessions(ownerKey, selectedLegacy, dayComplete || !published
+    ? dayValues : dayValues.filter((row) => readStoredSession(row)?.syncState === 'pending'));
   if (recentRow || (archiveKey && !meta?.published)) {
     return { sessions, rawHistoryComplete: false, published: undefined, tailComplete: false, recentOnly: true };
   }
   const receivedSessions = meta?.published ? sessions.filter((row) => row.syncState === 'synced' && hasPublicationReceipt(row)) : [];
+  const legacyReceived = meta?.published ? legacy.filter((row) => row.syncState === 'synced' && hasPublicationReceipt(row)) : [];
   const received = Boolean(meta?.fullHydrationCompleted && !meta.fullAuditInProgress
     && (meta.published
-      ? receivedSessions.length === meta.hydratedRemoteCount && hasPublishedCursor(meta, receivedSessions)
+      ? legacyReceived.length === meta.hydratedRemoteCount && hasPublishedCursor(meta, legacyReceived)
       : meta.quarantinedDocuments.length === 0
-        && sessions.filter(({ syncState }) => syncState === 'synced').length >= meta.hydratedRemoteCount));
-  const published = meta?.published;
+        && legacy.filter(({ syncState }) => syncState === 'synced').length >= meta.hydratedRemoteCount));
   let visible = sessions;
   if (published) {
     const receivedIds = new Set(receivedSessions.map(({ sessionId }) => sessionId));
@@ -1137,8 +1385,8 @@ export async function getLocalReadingReportSnapshot(ownerKey: OwnerKey, verifyHi
     const openIds = new Set(selectReadingRollupTail(published, receivedSessions, unreceived).map(({ sessionId }) => sessionId));
     visible = sessions.filter(({ sessionId }) => receivedIds.has(sessionId) || openIds.has(sessionId));
   }
-  return { sessions: visible, rawHistoryComplete: received && !meta?.published && Boolean(meta?.lastFullAuditAt),
-    published, tailComplete: received && Boolean(published), recentOnly: false };
+  return { sessions: visible, rawHistoryComplete: received && !requiresDaySource && !published && Boolean(meta?.lastFullAuditAt),
+    published, tailComplete: Boolean(published) && (requiresDaySource ? dayComplete : received), recentOnly: false };
 }
 
 export async function getLocalReadingSessionsForFileTotals(
@@ -1155,13 +1403,14 @@ export const getPendingReadingSessionsV11 = async (
   limit = 40,
 ) => {
   const db = await initDB();
-  const values = await db.getAllFromIndex(
-    V11_READING_SESSIONS_STORE,
-    'by-owner-sync-next-attempt',
-    IDBKeyRange.bound([ownerKey, 'pending', 0], [ownerKey, 'pending', now]),
-    limit,
-  );
-  return values.map(assertStoredSession);
+  const index = db.transaction(V11_READING_SESSIONS_STORE).store.index('by-owner-sync-next-attempt');
+  const pending = (key: string) => index.getAll(IDBKeyRange.bound([key, 'pending', 0], [key, 'pending', now]), limit);
+  const [legacy, days] = await Promise.all([pending(ownerKey),
+    !readingDayWritesEnabled() || isGuestOwner(ownerKey) ? [] : pending(readingStatisticsDayStorageKey(ownerKey))]);
+  if (!days.length) return legacy.map(assertStoredSession);
+  return [...legacy, ...days].map(assertStoredSession)
+    .sort((a, b) => a.nextAttemptAt - b.nextAttemptAt || a.sessionId.localeCompare(b.sessionId))
+    .slice(0, limit).map((session) => ({ ...session, ownerKey }));
 };
 
 export const markReadingSessionSyncedV11 = async (
@@ -1190,7 +1439,7 @@ export const markReadingSessionSyncedV11 = async (
     await tx.done;
     return false;
   }
-  const value = await store.get([ownerKey, sessionId]);
+  const value = await store.get([readingSessionStorageKey(ownerKey, sessionId), sessionId]);
   if (!value) {
     await tx.done;
     return false;
@@ -1237,7 +1486,7 @@ export const deferReadingSessionSyncV11 = async (
     await tx.done;
     return null;
   }
-  const value = await store.get([ownerKey, sessionId]);
+  const value = await store.get([readingSessionStorageKey(ownerKey, sessionId), sessionId]);
   if (!value) {
     await tx.done;
     return now;
