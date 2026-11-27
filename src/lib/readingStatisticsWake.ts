@@ -49,6 +49,17 @@ export const notifyReadingStatisticsChange = (ownerKey: OwnerKey) => {
   getSharedChannel()?.postMessage(change);
 };
 
+export async function withReadingStatisticsChangeBatch<T>(
+  ownerKey: OwnerKey, work: (onCommitted: () => void) => Promise<T>,
+): Promise<T> {
+  let committed = false;
+  try {
+    return await work(() => { committed = true; });
+  } finally {
+    if (committed) notifyReadingStatisticsChange(ownerKey);
+  }
+}
+
 export const subscribeReadingStatisticsChanges = (
   ownerKey: OwnerKey,
   listener: () => void,

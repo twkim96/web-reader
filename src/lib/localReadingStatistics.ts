@@ -1205,6 +1205,7 @@ export const reconcileUploadedReadingSessionConflictV11 = async (
   remote: ReadingSessionV1,
   leaseClaim?: ReadingStatisticsSyncLeaseClaimV13,
   now = Date.now(),
+  onCommitted = notifyReadingStatisticsChange,
 ) => {
   if (
     !isReadingSessionV1(remote)
@@ -1242,7 +1243,7 @@ export const reconcileUploadedReadingSessionConflictV11 = async (
   }
   await store.put({ ...toStoredSession(ownerKey, remote, 'synced'), ownerKey: storageKey });
   await tx.done;
-  notifyReadingStatisticsChange(ownerKey);
+  onCommitted(ownerKey);
   return true;
 };
 
@@ -1419,6 +1420,7 @@ export const markReadingSessionSyncedV11 = async (
   expected: ReadingSessionV1,
   leaseClaim?: ReadingStatisticsSyncLeaseClaimV13,
   now = Date.now(),
+  onCommitted = notifyReadingStatisticsChange,
 ) => {
   const db = await initDB();
   const tx = db.transaction([
@@ -1457,7 +1459,7 @@ export const markReadingSessionSyncedV11 = async (
     lastErrorCode: null,
   });
   await tx.done;
-  notifyReadingStatisticsChange(ownerKey);
+  onCommitted(ownerKey);
   return true;
 };
 
@@ -1467,6 +1469,7 @@ export const deferReadingSessionSyncV11 = async (
   errorCode: string,
   now = Date.now(),
   leaseClaim?: ReadingStatisticsSyncLeaseClaimV13,
+  onCommitted = notifyReadingStatisticsChange,
 ) => {
   const db = await initDB();
   const tx = db.transaction([
@@ -1502,6 +1505,6 @@ export const deferReadingSessionSyncV11 = async (
     lastErrorCode: errorCode.slice(0, 120),
   });
   await tx.done;
-  notifyReadingStatisticsChange(ownerKey);
+  onCommitted(ownerKey);
   return now + delay;
 };

@@ -32,6 +32,8 @@ const daySpillThreshold = 192 * 1024;
 const daySpillChunkBytes = 384 * 1024;
 const maxDaySpillBytes = 32 * 1024 * 1024;
 const maxDaySpillChunks = 128;
+const dayCleanupBatchSize = 8;
+const dayCleanupBatchLimit = 24;
 const maxJobPayloadBytes = 512 * 1024;
 const maxDecodedCarryBytes = 8 * 1024 * 1024;
 const enrollmentPageSize = 20;
@@ -44,6 +46,7 @@ const retryDelay = hour;
 const quotaDate = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Los_Angeles', dateStyle: 'short' });
 const root = `artifacts/${APP_ID}`;
 const jobs = (db: Firestore) => db.collection(`${root}/readingStatsRollupJobsV1`);
+const dayCleanupQueue = (db: Firestore) => db.collection(`${root}/readingStatsRollupDayCleanupV2`);
 const leaseRef = (db: Firestore, uid: string) => db.doc(`${root}/readingStatsRollupLeasesV1/${uid}`);
 const sourceRef = (db: Firestore, uid: string) => db.collection(`${root}/users/${uid}/libraries/local/readingStatsV1`);
 const date = (ms: number) => new Date(ms).toISOString().slice(0, 10);
@@ -62,6 +65,11 @@ type RollupSourceMetrics = {
   inputSessions: number;
   inputIntervals: number;
   quarantinedDayDocuments: number;
+  daySpillReads: number;
+  daySpillWrites: number;
+  weeklyCheckpointWrites: number;
+  dayCleanupDocuments: number;
+  dayCleanupFailures: number;
 };
 type WeekSummary = Pick<WeeklyReadingRollup, 'weekStart' | 'days'>;
 type Job = {
@@ -330,6 +338,28 @@ const daySpillRef = (ref: DocumentReference, week: string, index: number) => (
   ref.collection('readingStatsRollupDayChunksV2').doc(`${week}_${String(index).padStart(4, '0')}`)
 );
 
+const dayCleanupJobId = (uid: string, week: string) => `${week}_${createHash('sha256').update(uid).digest('hex')}`;
+
+async function cleanPublishedDayChunks(db: Firestore, task: DocumentReference) {
+  return db.runTransaction(async (tx) => {
+    const snapshot = await tx.get(task);
+    if (!snapshot.exists) return { deleted: 0, remaining: 0 };
+    const { uid, week, remaining: end } = snapshot.data()!;
+    if (typeof uid !== 'string' || !uid || uid.length > 128 || uid.includes('/') || uid === '.' || uid === '..'
+      || typeof week !== 'string' || task.id !== dayCleanupJobId(uid, week)
+      || !Number.isSafeInteger(end) || end < 1 || end > maxDaySpillChunks) {
+      throw new InvalidRollupInput('invalid-day-cleanup-task');
+    }
+    parseReadingRollupMonday(week);
+    const remaining = Math.max(0, end - dayCleanupBatchSize);
+    const ref = jobs(db).doc(uid);
+    for (let index = remaining; index < end; index++) tx.delete(daySpillRef(ref, week, index));
+    if (remaining) tx.update(task, { remaining });
+    else tx.delete(task);
+    return { deleted: end - remaining, remaining };
+  });
+}
+
 function spillDayInputs(scan: DayScan) {
   if (Buffer.byteLength(JSON.stringify(scan.pending)) <= daySpillThreshold) return [];
   const chunks: string[] = [];
@@ -354,7 +384,9 @@ function spillDayInputs(scan: DayScan) {
   return chunks;
 }
 
-async function readSpilledDayInputs(db: Firestore, ref: DocumentReference, job: Job, scan: DayScan, stopAt: number, now: () => number) {
+async function readSpilledDayInputs(
+  db: Firestore, ref: DocumentReference, job: Job, scan: DayScan, stopAt: number, now: () => number, metrics: RollupSourceMetrics,
+) {
   const entries = new Map<string, ReadingDayEntry>();
   const applied = scan.appliedDay;
   const keep = (entry: ReadingDayEntry) => {
@@ -373,6 +405,7 @@ async function readSpilledDayInputs(db: Firestore, ref: DocumentReference, job: 
   for (let from = 0; from < count; from += 16) {
     if (now() >= stopAt) return null;
     const docs = await db.getAll(...Array.from({ length: Math.min(count - from, 16) }, (_, i) => daySpillRef(ref, job.nextWeek, from + i)));
+    metrics.daySpillReads += docs.length;
     for (const doc of docs) {
       try {
         const payload: unknown = doc.get('payload');
@@ -805,12 +838,14 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
     let spilled: ReadingDayEntry[] | null = null;
     const complete = () => job.scanned && job.dayScan?.scanned
       && (spilled?.length ?? (job.dayScan.spillCount || job.dayScan.pending.length)) === 0 && !job.dayScan.legacyPending?.length;
-    const saveCheckpoint = (spill: string[] = [], spillStart = 0) => {
+    const saveCheckpoint = async (spill: string[] = [], spillStart = 0) => {
       const checkpoint = jobPayload(job);
-      return saveRollupJob(db, lease, now, (tx) => {
+      await saveRollupJob(db, lease, now, (tx) => {
         spill.forEach((payload, offset) => tx.create(daySpillRef(ref, job.nextWeek, spillStart + offset), { payload }));
         tx.update(ref, { payload: checkpoint });
       });
+      metrics.weeklyCheckpointWrites++;
+      metrics.daySpillWrites += spill.length;
     };
     for (let pages = 0; !complete() && now() < stopAt && pages < maxPages; pages++) {
       const days: DayScan = job.dayScan;
@@ -831,7 +866,7 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
         continue;
       }
       if (days.spillCount && spilled === null) {
-        spilled = await readSpilledDayInputs(db, ref, job, days, stopAt, now);
+        spilled = await readSpilledDayInputs(db, ref, job, days, stopAt, now, metrics);
         if (!spilled) return 'pending';
       }
       let rows = takeRollupInputRows(job, days, spilled);
@@ -914,7 +949,9 @@ async function closeReadingRollup(db: Firestore, lease: Lease, stopAt: number, n
       : null;
     // Readers only ever see a manifest committed with its complete artifacts.
     await saveRollupJob(db, lease, now, (tx) => {
-      for (let index = 0; index < spills; index++) tx.delete(daySpillRef(ref, closed, index));
+      if (spills) tx.create(dayCleanupQueue(db).doc(dayCleanupJobId(lease.uid, closed)), {
+        uid: lease.uid, week: closed, remaining: spills,
+      });
       tx.create(ref.collection('readingStatsRollupWeeksV1').doc(closed), { payload: detailPayload });
       if (calendarPayload) tx.create(ref.collection('readingStatsRollupCalendarsV1').doc(closed), { payload: calendarPayload });
       if (files) tx.set(fileTotalsRef(ref), { throughWeek: closed, payload: files });
@@ -946,6 +983,7 @@ export async function runReadingRollupCron(db: Firestore, { now = Date.now, runF
 } = {}) {
   const startedAt = now();
   const stopAt = startedAt + runForMs;
+  const workStopAt = stopAt - Math.min(2_000, Math.floor(runForMs / 10));
   const bootstrapReserve = Math.min(6_000, Math.floor(runForMs / 5));
   const enrollmentReserve = listAccounts ? Math.min(2_000, Math.floor(runForMs / 10)) : 0;
   const outcomes: Record<string, number> = {};
@@ -955,6 +993,7 @@ export async function runReadingRollupCron(db: Firestore, { now = Date.now, runF
   const metrics: Parameters<NonNullable<typeof reportQueue>>[0] = {
     regularVisited: 0, bootstrapVisited: 0, legacyDocuments: 0, dayDocuments: 0,
     inputSessions: 0, inputIntervals: 0, quarantinedDayDocuments: 0,
+    daySpillReads: 0, daySpillWrites: 0, weeklyCheckpointWrites: 0, dayCleanupDocuments: 0, dayCleanupFailures: 0,
   };
   const reportFailure = (stage: string, error: unknown) => {
     console.error('[reading-rollup]', stage, error instanceof Error ? error.name : 'unknown');
@@ -1011,11 +1050,11 @@ export async function runReadingRollupCron(db: Firestore, { now = Date.now, runF
     }
   };
 
-  await runDue('dueAt', 64, stopAt - bootstrapReserve);
-  await runDue('bootstrapDueAt', 16, stopAt - enrollmentReserve);
-  if (listAccounts && now() < stopAt && !outcomes.budget) {
+  await runDue('dueAt', 64, workStopAt - bootstrapReserve);
+  await runDue('bootstrapDueAt', 16, workStopAt - enrollmentReserve);
+  if (listAccounts && now() < workStopAt && !outcomes.budget) {
     try {
-      const enrolled = await enrollReadingRollupAccounts(db, listAccounts, stopAt, now);
+      const enrolled = await enrollReadingRollupAccounts(db, listAccounts, workStopAt, now);
       if (enrolled) outcomes.enrolled = enrolled;
     } catch (error) {
       console.error('[reading-rollup] account discovery failed', error instanceof Error ? error.name : 'unknown');
@@ -1025,13 +1064,33 @@ export async function runReadingRollupCron(db: Firestore, { now = Date.now, runF
   // With no other work waiting, one account can still use the full daily budget.
   // Each additional turn is bounded so other unfinished accounts get a chance.
   for (let turn = 1; turn < Math.ceil(dailySourceReads / (sourcePagesPerTurn * pageSize))
-    && deferred.length && now() < stopAt && !outcomes.budget; turn++) {
+    && deferred.length && now() < workStopAt && !outcomes.budget; turn++) {
     for (const { id, field } of deferred.splice(0)) {
-      if (now() >= stopAt || outcomes.budget) break;
+      if (now() >= workStopAt || outcomes.budget) break;
       if (--outcomes.pending === 0) delete outcomes.pending;
-      const status = await runJob(id, field, stopAt);
+      const status = await runJob(id, field, workStopAt);
       if (status === 'pending') deferred.push({ id, field });
       else if (status === undefined) outcomes.pending = (outcomes.pending ?? 0) + 1;
+    }
+  }
+  if (now() < stopAt) {
+    try {
+      const queued = await dayCleanupQueue(db).orderBy(FieldPath.documentId()).limit(dayCleanupBatchLimit).get();
+      const tasks = queued.docs.map(({ ref }) => ref);
+      for (let batch = 0; batch < dayCleanupBatchLimit && tasks.length && now() < stopAt; batch++) {
+        const task = tasks.shift()!;
+        try {
+          const { deleted, remaining } = await cleanPublishedDayChunks(db, task);
+          metrics.dayCleanupDocuments += deleted;
+          if (remaining) tasks.push(task);
+        } catch (error) {
+          metrics.dayCleanupFailures++;
+          reportFailure('day chunk cleanup failed', error);
+        }
+      }
+    } catch (error) {
+      metrics.dayCleanupFailures++;
+      reportFailure('day chunk cleanup queue failed', error);
     }
   }
   reportQueue?.({ ...metrics, elapsedMs: now() - startedAt });

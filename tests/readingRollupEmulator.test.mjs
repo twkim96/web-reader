@@ -281,6 +281,89 @@ test('a large mixed-source week resumes its spilled checkpoint after two budget 
   assert.equal((await scratch.get()).empty, true);
 });
 
+test('publication commits before cleaning more than 10 MiB of spilled inputs and cleanup resumes independently', async (t) => {
+  const cleanupApp = initializeApp({ projectId: 'demo-web-reader-large-day-cleanup' }, 'large-day-cleanup');
+  t.after(() => deleteApp(cleanupApp));
+  const store = getFirestore(cleanupApp);
+  const uid = 'day-cleanup';
+  const job = store.doc(`${root}/readingStatsRollupJobsV1/${uid}`);
+  const scratch = job.collection('readingStatsRollupDayChunksV2');
+  const queue = store.collection(`${root}/readingStatsRollupDayCleanupV2`);
+  const due = Date.parse('2026-11-24T09:00:00Z');
+  let time = due;
+  const now = () => time;
+  const asStamp = (at) => [at / 1000, 0];
+  const firstReceivedAt = { seconds: due / 1000 - 1, nanoseconds: 0 };
+  const count = 30;
+  let spillBytes = 0;
+  // Model a resumed job that already consumed its input and is ready to publish.
+  // Keep the carry small so the transaction only exercises temporary cleanup.
+  const seed = store.batch();
+  for (let index = 0; index < count; index++) {
+    const payload = JSON.stringify(Array.from({ length: 110 }, (_, row) => ({
+      session: session(`consumed-${index}-${row}`, '2026-11-15T00:00:00Z', { bookTitle: '가'.repeat(1_000) }),
+      firstReceivedAt,
+    })));
+    const bytes = Buffer.byteLength(payload);
+    assert.ok(bytes < 384 * 1024);
+    spillBytes += bytes;
+    seed.create(scratch.doc(`${nextWeek}_${String(index).padStart(4, '0')}`), { payload });
+  }
+  assert.ok(spillBytes > 10 * 1024 * 1024);
+  await Promise.all([seed.commit(), job.create({ dueAt: due, payload: JSON.stringify({
+    firstWeek: nextWeek, nextWeek, sourceAfter: asStamp(due - weekMs), closeAt: asStamp(due),
+    cursor: null, scanned: true, tailPolicy: 2, carry: createReadingRollupCarry([], nextWeek), lastCalendarWeek: null, group: [],
+    dayScan: {
+      scanned: true, cursor: null, pending: [], spillCount: count, spillBytes,
+      appliedDay: { firstReceivedAt, id: 'z' },
+    },
+  }) })]);
+
+  let interruption = 'before-delete';
+  const runTransaction = store.runTransaction.bind(store);
+  t.mock.method(store, 'runTransaction', async (callback, options) => {
+    let cleaning = false;
+    const outcome = await runTransaction((tx) => {
+      const get = tx.get.bind(tx);
+      tx.get = (ref) => {
+        if (ref.parent?.path === queue.path) {
+          cleaning = true;
+          if (interruption === 'before-delete') throw new Error('simulated cleanup failure');
+        }
+        return get(ref);
+      };
+      return callback(tx);
+    }, options);
+    if (cleaning && interruption === 'after-batch') time += 40_000;
+    return outcome;
+  });
+  let metrics;
+  const run = () => runReadingRollupCron(store, { now, reportQueue: (value) => { metrics = value; } });
+  const manifest = job.collection('readingStatsRollupManifestsV1').doc('current');
+  assert.deepEqual(await run(), { published: 1 });
+  assert.equal((await manifest.get()).get('publishedThroughWeek'), nextWeek);
+  assert.equal((await scratch.select().get()).size, count);
+  assert.equal((await queue.get()).docs[0].get('remaining'), count);
+  assert.equal(metrics.dayCleanupFailures, 1);
+
+  interruption = 'after-batch';
+  time += weekMs;
+  assert.deepEqual(await run(), { published: 1 }, 'the next week publishes with previous cleanup still pending');
+  assert.equal((await manifest.get()).get('publishedThroughWeek'), '2026-11-23');
+  assert.equal((await scratch.select().get()).size, count - 8);
+  assert.equal((await queue.get()).docs[0].get('remaining'), count - 8);
+  assert.equal(metrics.dayCleanupDocuments, 8);
+
+  interruption = undefined;
+  assert.deepEqual(await run(), {});
+  assert.equal(metrics.dayCleanupDocuments, count - 8);
+  assert.equal((await queue.get()).empty, true);
+  assert.equal((await scratch.select().get()).empty, true);
+  assert.deepEqual(await run(), {});
+  assert.equal(metrics.dayCleanupDocuments, 0);
+  assert.equal((await manifest.get()).get('publishedThroughWeek'), '2026-11-23');
+});
+
 test('rollup writers share an account lease and Cron reservations share the Pacific-day quota', async () => {
   let time = Date.parse('2026-12-10T10:00:00Z');
   const now = () => time;

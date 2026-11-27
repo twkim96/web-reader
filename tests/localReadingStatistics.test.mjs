@@ -40,6 +40,7 @@ import {
   acquireReadingStatisticsSyncLeaseV13,
 } from '../src/lib/readingStatisticsSyncLease.ts';
 import { catchUpReadingStatisticsAuditAsLeader } from '../src/lib/readingStatisticsSyncCoordinator.ts';
+import { subscribeReadingStatisticsChanges, withReadingStatisticsChangeBatch } from '../src/lib/readingStatisticsWake.ts';
 import { parseReadingRollupBootstrap } from '../src/lib/readingRollupBootstrap.ts';
 import { identifyReadingDaySession } from '../src/lib/readingStatisticsDay.ts';
 import {
@@ -81,6 +82,43 @@ const makeSession = (sessionId = 'session-1', bookTitle = 'Book') => ({
   timezoneOffsetMinutes: 0,
   localDate: getReadingSessionLocalDate(1_000, 0),
   completed: false,
+});
+
+test('an interrupted upload batch announces committed ACKs once and leaves later rows pending', async (t) => {
+  const account = makeOwnerKey(makeFirebaseOwnerKey('statistics-ack-batch'), 'library:local');
+  const [created, conflict, unsent] = ['created', 'conflict', 'unsent'].map((id) => makeSession(id));
+  await Promise.all([created, conflict, unsent].map((row) => saveLocalReadingSessionV11(account, row)));
+  const previousWindow = globalThis.window;
+  const previousChannel = globalThis.BroadcastChannel;
+  globalThis.window = new EventTarget();
+  globalThis.BroadcastChannel = undefined;
+  let notifications = 0;
+  const unsubscribe = subscribeReadingStatisticsChanges(account, () => notifications++);
+  t.after(() => {
+    unsubscribe();
+    globalThis.window = previousWindow;
+    globalThis.BroadcastChannel = previousChannel;
+  });
+  const resolved = { ...conflict, endProgressPercent: 30 };
+  const now = Date.now();
+  const lease = await acquireReadingStatisticsSyncLeaseV13(account, 'batch-owner', now);
+
+  await assert.rejects(withReadingStatisticsChangeBatch(account, async (onCommitted) => {
+    assert.equal(await markReadingSessionSyncedV11(account, created.sessionId, created, lease, now, onCommitted), true);
+    assert.equal(await reconcileUploadedReadingSessionConflictV11(account, conflict, resolved, lease, now, onCommitted), true);
+    assert.equal(notifications, 0);
+    throw new Error('third upload interrupted');
+  }), /third upload interrupted/);
+  assert.equal(notifications, 1);
+  const rows = new Map((await getLocalReadingSessionsV11(account)).map((row) => [row.sessionId, row]));
+  assert.equal(rows.get(created.sessionId).syncState, 'synced');
+  assert.equal(rows.get(conflict.sessionId).syncState, 'synced');
+  assert.equal(rows.get(conflict.sessionId).endProgressPercent, 30);
+  assert.equal(rows.get(unsent.sessionId).syncState, 'pending');
+  await withReadingStatisticsChangeBatch(account, async () => undefined);
+  assert.equal(notifications, 1);
+  await markReadingSessionSyncedV11(account, unsent.sessionId, unsent, lease, now);
+  assert.equal(notifications, 2, 'standalone ACKs still notify immediately');
 });
 
 test('device-day rows share the local report without exposing their outbox to a legacy tab', async () => {

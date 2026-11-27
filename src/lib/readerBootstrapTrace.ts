@@ -11,6 +11,7 @@ export type ReaderBootstrapTraceEvent = {
     | 'active-progress-refresh'
     | 'write-lease-issuance'
     | 'reading-statistics-hydration'
+    | 'reading-statistics-day-upload'
     | 'remote-decision'
     | 'remote-navigation-result'
     | 'font-ready'
@@ -38,7 +39,12 @@ export type ReaderBootstrapTraceEvent = {
   returnedDocuments?: number;
   dayDocuments?: number;
   daySessionEntries?: number;
+  newDayReceipts?: number;
   dayApproximateBytes?: number;
+  emptyDayQueries?: number;
+  dayQueuedSessions?: number;
+  largestDayUploadGroup?: number;
+  dayUploadAttempts?: number;
   emptyQueries?: number;
   auditProbe?: 'matched' | 'mismatch' | 'failed';
   fullScanReason?: ReadingStatisticsFullScanReason;

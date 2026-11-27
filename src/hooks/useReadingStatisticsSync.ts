@@ -43,6 +43,7 @@ import {
   subscribeReadingStatisticsChanges,
   subscribeReadingStatisticsRefreshRequests,
   subscribeReadingStatisticsServerChecks,
+  withReadingStatisticsChangeBatch,
 } from '../lib/readingStatisticsWake';
 import {
   readReadingStatisticsClockSample,
@@ -212,14 +213,18 @@ export const useReadingStatisticsSync = (
             && await hasLeadership(),
           );
         };
-        const uploadPending = async (limit?: number) => {
-          const pending = await getPendingReadingSessionsV11(syncOwnerKey, Date.now(), limit);
-          if (!await hasClaimLeadership()) return 'stopped';
+        const uploadSessions = async (
+          pending: Awaited<ReturnType<typeof getPendingReadingSessionsV11>>,
+          onCommitted: () => void,
+          onDayAttempt: () => void,
+        ) => {
           for (const session of pending) {
             if (!await hasClaimLeadership()) return 'stopped';
             try {
               const requestStartedAt = Date.now();
-              const result = readingDayBucketFromSessionId(session.sessionId)
+              const isDay = Boolean(readingDayBucketFromSessionId(session.sessionId));
+              if (isDay) onDayAttempt();
+              const result = isDay
                 ? await uploadReadingDaySession(user, session)
                 : await uploadReadingSessionV1(db, user.uid, session);
               const requestCompletedAt = Date.now();
@@ -230,6 +235,8 @@ export const useReadingStatisticsSync = (
                   session,
                   result.remote,
                   leaseClaim,
+                  undefined,
+                  onCommitted,
                 );
                 if (!reconciled) return 'stopped';
                 setUploadHealth('healthy');
@@ -240,6 +247,8 @@ export const useReadingStatisticsSync = (
                 session.sessionId,
                 session,
                 leaseClaim,
+                undefined,
+                onCommitted,
               );
               if (!markedSynced) return 'stopped';
               setUploadHealth('healthy');
@@ -277,6 +286,7 @@ export const useReadingStatisticsSync = (
                 getErrorCode(error),
                 Date.now(),
                 leaseClaim,
+                onCommitted,
               );
               if (nextAttemptAt === null) return 'stopped';
               setUploadHealth(nextHealth);
@@ -285,6 +295,30 @@ export const useReadingStatisticsSync = (
             }
           }
           return 'ready';
+        };
+        const uploadPending = async (limit?: number) => {
+          const pending = await getPendingReadingSessionsV11(syncOwnerKey, Date.now(), limit);
+          if (!await hasClaimLeadership()) return 'stopped';
+          if (!pending.length) return 'ready';
+          const startedAt = performance.now();
+          const dayGroups = new Map<string, number>();
+          let dayQueuedSessions = 0;
+          for (const session of pending) {
+            const bucket = readingDayBucketFromSessionId(session.sessionId);
+            if (!bucket) continue;
+            dayQueuedSessions++;
+            dayGroups.set(bucket, (dayGroups.get(bucket) ?? 0) + 1);
+          }
+          let dayUploadAttempts = 0;
+          try {
+            return await withReadingStatisticsChangeBatch(syncOwnerKey, (onCommitted) =>
+              uploadSessions(pending, onCommitted, () => { dayUploadAttempts++; }));
+          } finally {
+            if (dayQueuedSessions) traceReaderBootstrap({
+              event: 'reading-statistics-day-upload', durationMs: performance.now() - startedAt,
+              dayQueuedSessions, largestDayUploadGroup: Math.max(...dayGroups.values()), dayUploadAttempts,
+            });
+          }
         };
         do {
           requested = false;
@@ -305,7 +339,9 @@ export const useReadingStatisticsSync = (
             let returnedDocuments = 0;
             let dayDocuments = 0;
             let daySessionEntries = 0;
+            let newDayReceipts: number | undefined;
             let dayApproximateBytes = 0;
+            let emptyDayQueries = 0;
             let receivedHistoryDocuments = 0;
             let notifyOnExit = false;
             let emptyQueries = 0;
@@ -517,6 +553,7 @@ export const useReadingStatisticsSync = (
               }
               let dayQuarantined = 0;
               if (readingDayReadsEnabled()) {
+                if (published) newDayReceipts = 0;
                 const seconds = Math.floor(recentSince / 1000);
                 const recoveryFloor = { seconds, nanoseconds: (recentSince - seconds * 1000) * 1_000_000 };
                 let state = await prepareReadingDayReceive(syncOwnerKey, published?.sourceThrough ?? recoveryFloor, published, leaseClaim);
@@ -553,8 +590,11 @@ export const useReadingStatisticsSync = (
                   dayDocuments += page.documents;
                   daySessionEntries += page.entries.length;
                   dayApproximateBytes += page.approximateBytes;
+                  if (page.documents === 0) emptyDayQueries++;
                   receivedHistoryDocuments += page.documents;
-                  state = await hydrateReadingDayReceivePage(syncOwnerKey, state, page, leaseClaim);
+                  const next = await hydrateReadingDayReceivePage(syncOwnerKey, state, page, leaseClaim);
+                  if (newDayReceipts !== undefined && next) newDayReceipts += next.receiptCount - state.receiptCount;
+                  state = next;
                   hydrationPageCount++;
                   if (page.done && state) {
                     dayQuarantined = state.quarantinedParts.length;
@@ -597,7 +637,9 @@ export const useReadingStatisticsSync = (
                 queryAttempts: remoteReadAttemptCount,
                 completedQueries: remoteReadCount,
                 returnedDocuments,
-                ...(readingDayReadsEnabled() && { dayDocuments, daySessionEntries, dayApproximateBytes }),
+                ...(readingDayReadsEnabled() && {
+                  dayDocuments, daySessionEntries, dayApproximateBytes, emptyDayQueries, newDayReceipts,
+                }),
                 emptyQueries,
                 auditProbe,
                 publishedAudit,
