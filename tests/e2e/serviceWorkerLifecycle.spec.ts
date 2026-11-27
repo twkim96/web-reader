@@ -30,7 +30,13 @@ test('same-version build updates its imported worker script and prepares the new
     } else if (request.url === '/sw.js' || request.url === '/sw-policy.js' || request.url === '/sw-build.js') {
       response.setHeader('Content-Type', 'application/javascript');
       response.end(request.url === '/sw.js' ? worker : request.url === '/sw-policy.js' ? policy
-        : `self.PC_READER_BUILD_ID = "${build}";`);
+        : `self.PC_READER_BUILD_ID = "${build}"; self.PC_READER_HAS_OFFLINE_ASSETS = true;`);
+    } else if (request.url === `/_next/static/${build}/offline-assets.json`) {
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify([`/_next/static/chunks/${build}-reader.js`]));
+    } else if (request.url === `/_next/static/chunks/${build}-reader.js`) {
+      response.setHeader('Content-Type', 'application/javascript');
+      response.end(`export default "${build}";`);
     } else if (request.url?.startsWith('/_next/static/')) {
       response.setHeader('Content-Type', 'application/javascript');
       response.end(`document.title = "${build}";`);
@@ -93,6 +99,11 @@ test('same-version build updates its imported worker script and prepares the new
     await page.goto(appUrl);
     await expect(page).toHaveTitle('second');
     await expect(page.locator('body')).toHaveText('second');
+    const offlineReaderBuild = await page.evaluate(async () => {
+      const path = '/_next/static/chunks/second-reader.js';
+      return (await import(path)).default;
+    });
+    expect(offlineReaderBuild).toBe('second');
     expect(await catalogGeneration()).toBe('second');
     const loadedFonts = await page.evaluate(async paths => Promise.all(paths.map(async (path, index) => {
       const response = await fetch(path, { cache: 'no-store' });
@@ -131,7 +142,7 @@ test('runtime cache stores only allowlisted public static requests', async ({ pa
       api: `/api/not-found?sw-api=${nonce}`,
     };
     const buildScript = await (await fetch('/sw-build.js')).text();
-    const buildId = JSON.parse(buildScript.split(' = ')[1].replace(';', ''));
+    const buildId = JSON.parse(buildScript.split(';', 1)[0].split(' = ')[1]);
     const cache = await caches.open('pc-reader-v1.8.37-' + buildId);
     await Promise.all(Object.values(urls).map((url) => cache.delete(url)));
 

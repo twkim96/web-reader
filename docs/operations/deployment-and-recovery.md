@@ -22,6 +22,8 @@
 
 Service Worker는 manifest/정적 자원과 일관된 오프라인 HTML shell을 준비합니다. `pc-reader-` + 버전 + build ID로 shell/runtime cache를 구분하고 새 worker가 활성화되면 같은 앱 prefix의 이전 cache를 정리합니다. IndexedDB 도서와 이 Cache Storage는 별도 저장소입니다. 읽기 글꼴은 오프라인에서 선택할 수 있도록 설치 중 준비합니다. 리디 바탕은 WOFF2를 준비하고 OTF 대체 파일은 필요할 때 가져옵니다.
 
+`npm run build`는 루트 페이지의 지연 로드 파일 목록을 build ID 아래에 생성합니다. 운영 worker는 이 목록과 TXT·EPUB을 여는 Foliate 모듈을 설치 중 캐시합니다. 설치가 끝나면 온라인에서 도서를 미리 열지 않아도 기기에 저장한 TXT·EPUB 본문을 열 수 있습니다. PDF·압축 이미지의 형식별 추가 리소스는 사용 시 캐시합니다.
+
 업데이트 안내는 휴대폰처럼 좁은 화면에서 좌우 여백을 남긴 넓은 폭을 사용하고, 적용 버튼은 `저장 후` / `적용` 두 줄로 표시합니다. 넓은 화면에서는 기존 자동 너비와 한 줄 버튼을 유지합니다.
 
 `저장 후 적용`을 누르면 `처리 중…`을 표시하고 현재 진행률 flush와 로컬 commit drain을 기다립니다. 저장이 끝나면 대기 중인 worker에 `SKIP_WAITING`을 보내고 controller 교체 후 새로고침합니다. 같은 브라우저의 다른 탭이 먼저 worker를 활성화하면 현재 탭도 `저장 후 적용`을 통해 자체 저장을 끝낸 뒤 새로고침합니다. 저장이 실패하거나 worker 활성화가 응답하지 않으면 버튼에서 다시 시도할 수 있습니다. 임시 슬라이더 이동 중에는 [리더 저장 계약](../SPEC/reader-and-progress.md)에 따라 업데이트 flush도 성공 처리하지 않습니다.

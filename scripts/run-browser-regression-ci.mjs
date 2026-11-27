@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { chromium } from '@playwright/test';
+import { chromium, devices, expect } from '@playwright/test';
 
 const processes = [];
 let browser;
@@ -45,6 +45,46 @@ const terminateAndWait = async (child) => {
   });
 };
 
+const verifyFirstOfflineReaderOpen = async (browser, origin) => {
+  const context = await browser.newContext({ ...devices['Pixel 7'], baseURL: origin });
+  try {
+    await context.route(url => url.origin !== origin, route => route.abort());
+    await context.route(/\/__\/auth\/iframe(?:\?|$)/, route => route.fulfill({
+      contentType: 'text/html', body: '<!doctype html><html></html>',
+    }));
+    await context.addInitScript(() => {
+      localStorage.setItem('isGuest', 'true');
+      localStorage.setItem('neverShowInstallPrompt', 'true');
+    });
+    const page = await context.newPage();
+    await page.goto('/');
+    await expect.poll(() => page.evaluate(async () => (
+      (await navigator.serviceWorker.getRegistration())?.active?.state === 'activated'
+    )), { timeout: 15_000 }).toBe(true);
+    if (!await page.evaluate(() => Boolean(navigator.serviceWorker.controller))) {
+      await page.goto('about:blank');
+      await page.goto('/');
+    }
+    await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
+
+    const proof = 'Cold offline reader proof';
+    await page.locator('button[title="Add Local Book"]:visible').first().click();
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'cold-offline-reader.txt', mimeType: 'text/plain', buffer: Buffer.from(`${proof}\n`.repeat(25)),
+    });
+    await page.getByRole('button', { name: '추가', exact: true }).click();
+    const book = page.locator('[data-shelf-book-id]').filter({ hasText: 'cold-offline-reader' });
+    await expect(book).toBeVisible({ timeout: 15_000 });
+    await context.setOffline(true);
+    await book.click();
+    await page.waitForFunction(text => document.querySelector('foliate-view')?.renderer?.getContents()
+      .some(({ doc }) => doc.body?.textContent?.includes(text)), proof, { timeout: 15_000 });
+    console.log('First local TXT open rendered offline in a fresh production browser context.');
+  } finally {
+    await context.close();
+  }
+};
+
 try {
   start('npm', ['run', 'start', '--', '--hostname', '127.0.0.1', '--port', '3000']);
   await waitForUrl('http://127.0.0.1:3000', 'Next production server');
@@ -56,6 +96,7 @@ try {
     args: ['--remote-debugging-address=127.0.0.1', '--remote-debugging-port=9223'],
   });
   await waitForUrl('http://127.0.0.1:9223/json/version', 'Chromium CDP endpoint');
+  await verifyFirstOfflineReaderOpen(browser, 'http://127.0.0.1:3000');
 
   await waitForExit(start(process.execPath, ['tests/browserRegression.mjs'], {
     env: {

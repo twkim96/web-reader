@@ -2,7 +2,22 @@ importScripts('/sw-policy.js', '/sw-build.js');
 
 const CACHE_PREFIX = 'pc-reader-';
 const CACHE_NAME = `${CACHE_PREFIX}v1.8.37-${self.PC_READER_BUILD_ID}`;
-const REQUIRED_PRECACHE_URLS = ['/manifest.json'];
+const readerRevision = CACHE_NAME.slice(CACHE_PREFIX.length + 1);
+const REQUIRED_PRECACHE_URLS = ['/manifest.json', ...[
+  `view.js?v=${readerRevision}`,
+  `paginator.js?v=${readerRevision}`,
+  'epub.js',
+  'epubcfi.js',
+  'fixed-layout.js',
+  'latest-task.js',
+  'overlayer.js',
+  'progress.js',
+  'publication-sanitizer.js',
+  'sandbox-policy.js',
+  'text-walker.js',
+  'vendor/zip.js',
+  'view-policy.js',
+].map(path => `/foliate-js/${path}`)];
 const OPTIONAL_PRECACHE_URLS = [
   '/favicon.ico',
   '/icon-192.png',
@@ -48,19 +63,32 @@ const navigationShellFirst = async (event) => {
   }
 };
 
+const fetchOfflineAssets = async () => {
+  if (!self.PC_READER_HAS_OFFLINE_ASSETS) return [];
+  const response = await fetch(`/_next/static/${self.PC_READER_BUILD_ID}/offline-assets.json`);
+  if (!response.ok) throw new Error('Offline asset list download failed');
+  const assets = await response.json();
+  if (!Array.isArray(assets) || !assets.length || assets.some(path => (
+    typeof path !== 'string' || !/^\/_next\/static\/chunks\/[\w.-]+\.(?:js|css)$/.test(path)
+  ))) throw new Error('Invalid offline asset list');
+  return assets;
+};
+
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
     // Publish the offline HTML only after all of its initial Next assets are ready.
     // Keep that shell fixed for this build; a later online response may belong to
     // a deployment whose worker the user has not yet approved.
-    const shell = await fetch('/', { cache: 'reload' });
+    const [shell, offlineAssets] = await Promise.all([
+      fetch('/', { cache: 'reload' }),
+      fetchOfflineAssets(),
+    ]);
     if (!shell.ok) throw new Error('Offline shell download failed');
     const html = await shell.clone().text();
     const assets = [...new Set(html.match(/\/_next\/static\/[^\s"'<>\\]+/g) ?? [])]
       .map((url) => url.replaceAll('&amp;', '&'));
-    await cache.addAll(assets);
-    await cache.addAll(REQUIRED_PRECACHE_URLS);
+    await cache.addAll([...new Set([...assets, ...offlineAssets, ...REQUIRED_PRECACHE_URLS])]);
     await cache.put('/', shell);
     await Promise.allSettled(OPTIONAL_PRECACHE_URLS.map((url) => cache.add(url)));
     await Promise.all(OBSOLETE_PRECACHE_URLS.map((url) => cache.delete(url)));

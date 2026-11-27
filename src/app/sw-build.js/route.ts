@@ -3,7 +3,7 @@
 export const dynamic = 'force-static';
 
 export function GET() {
-  return new Response(`self.PC_READER_BUILD_ID = ${JSON.stringify(process.env.NEXT_PUBLIC_APP_BUILD_ID ?? 'development')};`, {
+  return new Response(`self.PC_READER_BUILD_ID = ${JSON.stringify(process.env.NEXT_PUBLIC_APP_BUILD_ID ?? 'development')};\nself.PC_READER_HAS_OFFLINE_ASSETS = ${process.env.NODE_ENV === 'production'};`, {
     headers: { 'Content-Type': 'application/javascript', 'Cache-Control': 'no-cache' },
   });
 }
