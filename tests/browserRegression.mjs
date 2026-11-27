@@ -7265,7 +7265,8 @@ try {
     const cachePrefix = 'pc-reader-';
     const buildScript = await (await fetch('/sw-build.js')).text();
     const buildId = JSON.parse(buildScript.split(';', 1)[0].split(' = ')[1]);
-    const offlineAssets = await (await fetch('/_next/static/' + buildId + '/offline-assets.json')).json();
+    const offlineAssets = await (await fetch('/offline-assets.json?build=' + buildId)).json();
+    if (offlineAssets.buildId !== buildId) throw new Error('Offline assets describe a different build');
     const expectedCache = 'pc-reader-v1.8.37-' + buildId;
     const staleCache = 'pc-reader-v1.6.4';
     const preCacheUrls = [
@@ -7279,7 +7280,7 @@ try {
       '/fonts/RIDIBatang.woff2',
       '/foliate-js/view.js?v=1.8.37-' + buildId,
       '/foliate-js/paginator.js?v=1.8.37-' + buildId,
-      ...offlineAssets,
+      ...offlineAssets.assets,
     ];
     const registrations = await navigator.serviceWorker.getRegistrations();
     await Promise.all(registrations.map((registration) => registration.unregister()));

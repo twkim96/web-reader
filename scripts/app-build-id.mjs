@@ -20,7 +20,7 @@ export const computeAppBuildId = (root, publicEnv = {}) => {
     }
   };
   for (const directory of ['src', 'public']) walk(join(root, directory));
-  for (const file of ['package.json', 'package-lock.json', 'next.config.ts', 'scripts/app-build-id.mjs', 'scripts/write-offline-assets.mjs']) add(join(root, file));
+  for (const file of ['package.json', 'package-lock.json', 'next.config.ts', 'scripts/app-build-id.mjs']) add(join(root, file));
   hash.update(JSON.stringify(Object.entries(publicEnv)
     .filter(([key]) => key.startsWith('NEXT_PUBLIC_') && key !== 'NEXT_PUBLIC_APP_BUILD_ID')
     .sort(([a], [b]) => a.localeCompare(b))));

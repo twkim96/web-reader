@@ -65,10 +65,10 @@ const navigationShellFirst = async (event) => {
 
 const fetchOfflineAssets = async () => {
   if (!self.PC_READER_HAS_OFFLINE_ASSETS) return [];
-  const response = await fetch(`/_next/static/${self.PC_READER_BUILD_ID}/offline-assets.json`);
+  const response = await fetch(`/offline-assets.json?build=${self.PC_READER_BUILD_ID}`, { cache: 'reload' });
   if (!response.ok) throw new Error('Offline asset list download failed');
-  const assets = await response.json();
-  if (!Array.isArray(assets) || !assets.length || assets.some(path => (
+  const { buildId, assets } = await response.json();
+  if (buildId !== self.PC_READER_BUILD_ID || !Array.isArray(assets) || !assets.length || assets.some(path => (
     typeof path !== 'string' || !/^\/_next\/static\/(?:immutable\/)?chunks\/[\w.-]+\.(?:js|css)$/.test(path)
   ))) throw new Error('Invalid offline asset list');
   return assets;

@@ -22,7 +22,7 @@
 
 Service Worker는 manifest/정적 자원과 일관된 오프라인 HTML shell을 준비합니다. `pc-reader-` + 버전 + build ID로 shell/runtime cache를 구분하고 새 worker가 활성화되면 같은 앱 prefix의 이전 cache를 정리합니다. IndexedDB 도서와 이 Cache Storage는 별도 저장소입니다. 읽기 글꼴은 오프라인에서 선택할 수 있도록 설치 중 준비합니다. 리디 바탕은 WOFF2를 준비하고 OTF 대체 파일은 필요할 때 가져옵니다.
 
-`npm run build`는 루트 페이지의 지연 로드 파일 목록을 build ID 아래에 생성합니다. 운영 worker는 이 목록과 TXT·EPUB을 여는 Foliate 모듈을 설치 중 캐시합니다. 설치가 끝나면 온라인에서 도서를 미리 열지 않아도 기기에 저장한 TXT·EPUB 본문을 열 수 있습니다. PDF·압축 이미지의 형식별 추가 리소스는 사용 시 캐시합니다.
+`npm run build`는 루트 페이지의 지연 로드 파일 목록을 `/offline-assets.json`의 정적 응답으로 생성합니다. 운영 worker는 동일한 build ID의 목록과 TXT·EPUB을 여는 Foliate 모듈을 설치 중 캐시합니다. 설치가 끝나면 온라인에서 도서를 미리 열지 않아도 기기에 저장한 TXT·EPUB 본문을 열 수 있습니다. PDF·압축 이미지의 형식별 추가 리소스는 사용 시 캐시합니다.
 
 업데이트 안내는 휴대폰처럼 좁은 화면에서 좌우 여백을 남긴 넓은 폭을 사용하고, 적용 버튼은 `저장 후` / `적용` 두 줄로 표시합니다. 넓은 화면에서는 기존 자동 너비와 한 줄 버튼을 유지합니다.
 

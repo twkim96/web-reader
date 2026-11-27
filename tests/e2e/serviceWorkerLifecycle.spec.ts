@@ -32,9 +32,9 @@ test('same-version build updates its imported worker script and prepares the new
       response.setHeader('Content-Type', 'application/javascript');
       response.end(request.url === '/sw.js' ? worker : request.url === '/sw-policy.js' ? policy
         : `self.PC_READER_BUILD_ID = "${build}"; self.PC_READER_HAS_OFFLINE_ASSETS = true;`);
-    } else if (request.url === `/_next/static/${build}/offline-assets.json`) {
+    } else if (request.url === `/offline-assets.json?build=${build}`) {
       response.setHeader('Content-Type', 'application/json');
-      response.end(JSON.stringify([readerChunk()]));
+      response.end(JSON.stringify({ buildId: build, assets: [readerChunk()] }));
     } else if (request.url === readerChunk()) {
       response.setHeader('Content-Type', 'application/javascript');
       response.end(`export default "${build}";`);
