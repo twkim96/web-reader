@@ -254,7 +254,6 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
 }) => {
   const theme = getThemeClasses(settings);
   const readerCatalogBooks = useMemo(() => [book], [book]);
-  const readerCatalog = usePublicBookCatalog(readerCatalogBooks);
   const themeColors = useMemo(() => getThemeColors(settings), [settings]);
   const themeTexture = useMemo(() => getThemeTextureCss(settings), [settings]);
   const effectiveAccentColor = getThemeAccentColor(settings);
@@ -574,6 +573,7 @@ const EpubReaderInner: React.FC<EpubReaderProps> = ({
     setStyle,
     onBack,
   });
+  const readerCatalog = usePublicBookCatalog(readerCatalogBooks, isLoaded || showBookInfo);
 
   const {
     annotations,

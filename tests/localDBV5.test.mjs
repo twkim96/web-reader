@@ -708,6 +708,23 @@ test('loads only a current fingerprinted book cover without rebuilding it', asyn
   );
 });
 
+test('a deferred import cover requires the saved book and its current fingerprint', async () => {
+  const owner = DEVICE_CONTENT_OWNER_KEY;
+  const original = { ...makeBook('deferred-cover'), md5Checksum: '1234' };
+  const replacement = { ...original, md5Checksum: '5678' };
+  const cover = new Blob(['cached-cover'], { type: 'image/webp' });
+
+  await saveBookToLocalV5(owner, original, new Blob(['original']));
+  await saveBookToLocalV5(owner, replacement, new Blob(['replacement']));
+  assert.equal(await saveBookCoverToLocalV14(owner, original, cover, true), false);
+  assert.equal(await loadBookCoverFromLocalV14(owner, original), null);
+  assert.equal(await saveBookCoverToLocalV14(owner, replacement, cover, true), true);
+
+  await removeBookFromLocalV5(owner, replacement.id);
+  assert.equal(await saveBookCoverToLocalV14(owner, replacement, cover, true), false);
+  assert.equal(await loadBookCoverFromLocalV14(owner, replacement), null);
+});
+
 test('atomically removes one device book and only the current owner annotations', async () => {
   await saveBookToLocalV5(
     DEVICE_CONTENT_OWNER_KEY,

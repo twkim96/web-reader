@@ -82,6 +82,37 @@ type DiscoveryList = {
   books: readonly DiscoveryBook[];
 };
 const discoveryListCache = new WeakMap<readonly DiscoveryBook[], Map<CatalogSort, DiscoveryList>>();
+const SUGGESTION_PAGE_SIZE = 40;
+
+function DiscoverySuggestions({ suggestions, tagMode, onSelect }: {
+  suggestions: readonly { label: string; titleCount: number }[];
+  tagMode: boolean;
+  onSelect: (label: string) => void;
+}) {
+  const [visibleCount, setVisibleCount] = useState(SUGGESTION_PAGE_SIZE);
+  const suggestionDrag = useMouseDragScroll();
+  const hasMore = visibleCount < suggestions.length;
+  const showMore = () => setVisibleCount((count) => Math.min(count + SUGGESTION_PAGE_SIZE, suggestions.length));
+  return (
+    <div role="group" aria-label={tagMode ? '태그 자동완성' : '작가 자동완성'} {...suggestionDrag}
+      onScroll={(event) => {
+        const { scrollWidth, scrollLeft, clientWidth } = event.currentTarget;
+        if (hasMore && scrollWidth - scrollLeft <= clientWidth * 2) showMore();
+      }}
+      className="flex max-w-full gap-1.5 overflow-x-auto overscroll-x-contain pb-1 data-[mouse-dragging=true]:cursor-grabbing data-[mouse-dragging=true]:select-none">
+      {suggestions.slice(0, visibleCount).map(({ label, titleCount }) => (
+        <button key={label} type="button" onClick={() => onSelect(label)}
+          className="min-h-8 shrink-0 whitespace-nowrap rounded-md bg-current/5 px-2.5 text-xs font-semibold ring-1 ring-inset ring-current/15 hover:text-accent-500">
+          {tagMode ? '#' : '@'}{label} <span className="opacity-55">{titleCount.toLocaleString('ko-KR')}권</span>
+        </button>
+      ))}
+      {hasMore && (
+        <button type="button" onClick={showMore} aria-label="자동완성 더 보기"
+          className="min-h-8 shrink-0 whitespace-nowrap rounded-md px-2.5 text-xs font-semibold text-accent-500">더 보기</button>
+      )}
+    </div>
+  );
+}
 
 function getDiscoveryList(rows: readonly DiscoveryBook[], sort: CatalogSort): DiscoveryList {
   let sorts = discoveryListCache.get(rows);
@@ -209,7 +240,6 @@ export function MyPage(props: Props) {
   const [genre, setGenre] = useState(initialSearch.genre);
   const [selectedTags, setSelectedTags] = useState(initialSearch.selectedTags);
   const discoverySearchRef = useRef<HTMLInputElement>(null);
-  const suggestionDrag = useMouseDragScroll();
   const [wishlistSort, setWishlistSort] = useMyPageSort(ownerKey, 'wishlist', wishlistSorts, 'saved');
   const [discoverySort, setDiscoverySort] = useMyPageSort(ownerKey, 'discover', catalogSorts, 'popular');
   const [recommendationSort, setRecommendationSort] = useMyPageSort(ownerKey, 'recommendations', recommendationSorts, 'recommended');
@@ -714,15 +744,8 @@ export function MyPage(props: Props) {
                   placeholder="제목, @작가명 또는 #태그 검색" className="min-h-8 min-w-0 flex-1 basis-36 bg-transparent text-sm outline-none" />
               </div>
               {suggestions.length > 0 && (
-                <div key={tagMode ? tagQuery : query} role="group" aria-label={tagMode ? '태그 자동완성' : '작가 자동완성'} {...suggestionDrag}
-                  className="flex max-w-full gap-1.5 overflow-x-auto overscroll-x-contain pb-1 data-[mouse-dragging=true]:cursor-grabbing data-[mouse-dragging=true]:select-none">
-                  {suggestions.map(({ label, titleCount }) => (
-                    <button key={label} type="button" onClick={() => selectSuggestion(label)}
-                      className="min-h-8 shrink-0 whitespace-nowrap rounded-md bg-current/5 px-2.5 text-xs font-semibold ring-1 ring-inset ring-current/15 hover:text-accent-500">
-                      {tagMode ? '#' : '@'}{label} <span className="opacity-55">{titleCount.toLocaleString('ko-KR')}권</span>
-                    </button>
-                  ))}
-                </div>
+                <DiscoverySuggestions key={tagMode ? `#${tagQuery}` : query}
+                  suggestions={suggestions} tagMode={tagMode} onSelect={selectSuggestion} />
               )}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <select aria-label="도서 플랫폼 필터" value={source} onChange={(event) => { setSource(event.target.value); setVisibleCount(60); }} className={inputClass}><option value="">모든 플랫폼</option><option value="series">네이버 시리즈</option><option value="kakao">카카오페이지</option><option value="novelpia">노벨피아</option></select>

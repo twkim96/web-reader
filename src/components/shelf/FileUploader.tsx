@@ -51,6 +51,35 @@ export interface FileUploaderHandle {
   cancelUpload: () => void;
 }
 
+let importedCoverTail = Promise.resolve();
+let pendingImportedCovers = 0;
+
+const waitForCoverIdle = () => new Promise<void>((resolve) => {
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(() => resolve(), { timeout: 2_000 });
+  } else {
+    window.setTimeout(resolve, 100);
+  }
+});
+
+const queueImportedCover = (signal: AbortSignal, run: () => Promise<boolean>) => {
+  if (signal.aborted) return;
+  pendingImportedCovers += 1;
+  importedCoverTail = importedCoverTail.then(async () => {
+    if (signal.aborted) return;
+    await waitForCoverIdle();
+    if (!signal.aborted) await run();
+  }).catch((error) => {
+    if (!(error instanceof DOMException && error.name === 'AbortError')) {
+      console.warn('[Import] Failed to cache book cover:', error);
+    }
+  }).finally(() => {
+    pendingImportedCovers -= 1;
+  });
+  // If several batches overlap, pause further imports after publishing this book.
+  if (pendingImportedCovers > DEFAULT_MAX_IMPORT_FILES) return importedCoverTail;
+};
+
 export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
   googleToken,
   driveCacheKey,
@@ -151,7 +180,6 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
     if (!sourceFormat) return { refresh: false, stop: false };
 
     let archiveImageIndex: ArchiveImageIndex | undefined;
-    let archiveCoverSource: Blob | undefined;
     if (isArchiveFormat(sourceFormat)) {
       try {
         if (sourceFormat === '7z') {
@@ -159,12 +187,7 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
           archiveImageIndex = (await inspectSevenZipImageArchive(file)).index;
         } else {
           const { inspectZipImageArchive } = await import('../../lib/archiveImages');
-          const inspection = await inspectZipImageArchive(file, {
-            includeCoverSource: true,
-            signal,
-          });
-          archiveImageIndex = inspection.index;
-          archiveCoverSource = inspection.coverSource;
+          archiveImageIndex = (await inspectZipImageArchive(file, { signal })).index;
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : '압축 파일을 확인하지 못했습니다.';
@@ -258,37 +281,27 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
       }
     }
 
-    if (savedLocally && (sourceFormat === 'epub' || sourceFormat === 'pdf')) {
-      try {
-        await cacheImportedBookCoverIfMissing(
-          DEVICE_CONTENT_OWNER_KEY,
-          book,
-          file,
-          signal,
-        );
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          console.warn('[Import] Failed to cache book cover:', error);
-        }
-      }
-    }
-
-    if (savedLocally && archiveCoverSource && (sourceFormat === 'zip' || sourceFormat === 'cbz')) {
-      try {
-        await cacheBookCoverSourceIfMissing(
-          DEVICE_CONTENT_OWNER_KEY,
-          book,
-          archiveCoverSource,
-          signal,
-        );
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          console.warn('[Import] Failed to cache archive cover:', error);
-        }
-      }
-    }
-
     if (savedLocally || driveBook) onBookImported?.(book, savedLocally);
+    if (savedLocally && (sourceFormat === 'epub' || sourceFormat === 'pdf')) {
+      await queueImportedCover(signal, () => cacheImportedBookCoverIfMissing(
+        DEVICE_CONTENT_OWNER_KEY, book, file, signal,
+      ));
+    }
+    if (savedLocally && (sourceFormat === 'zip' || sourceFormat === 'cbz')) {
+      await queueImportedCover(signal, async () => {
+        const { prepareZipImageBook } = await import('../../lib/archiveImages');
+        const { book: archive } = await prepareZipImageBook(file, file.name, archiveImageIndex, signal);
+        try {
+          const coverSource = await archive.getCover?.();
+          if (!coverSource) return false;
+          return await cacheBookCoverSourceIfMissing(
+            DEVICE_CONTENT_OWNER_KEY, book, coverSource, signal,
+          );
+        } finally {
+          archive.destroy?.();
+        }
+      });
+    }
     return { refresh: Boolean(driveBook), stop: stopBatch };
   };
 

@@ -1,7 +1,7 @@
 import type { Book } from '../types.ts';
 import { getBookFingerprint } from './bookFingerprint.ts';
 import { initDB } from './localDB.ts';
-import { V14_BOOK_COVERS_STORE } from './localDBSchema.ts';
+import { V5_BOOKS_STORE, V5_METADATA_STORE, V14_BOOK_COVERS_STORE } from './localDBSchema.ts';
 import type { OwnerKey } from './ownerIdentity.ts';
 
 export const BOOK_COVER_CACHE_CHANGE_EVENT = 'web-reader-book-cover-cache-change';
@@ -25,16 +25,34 @@ export const saveBookCoverToLocalV14 = async (
   ownerKey: OwnerKey,
   book: Book,
   image: Blob,
+  requireLocalBook = false,
 ) => {
   const db = await initDB();
-  await db.put(V14_BOOK_COVERS_STORE, {
+  const record = {
     ownerKey,
     bookId: book.id,
     fingerprint: getBookFingerprint(book),
     image,
     cachedAt: Date.now(),
-  } satisfies StoredBookCoverV14);
+  } satisfies StoredBookCoverV14;
+  if (requireLocalBook) {
+    const tx = db.transaction([V5_BOOKS_STORE, V5_METADATA_STORE, V14_BOOK_COVERS_STORE], 'readwrite');
+    const key = [ownerKey, book.id];
+    const [contentKey, metadata] = await Promise.all([
+      tx.objectStore(V5_BOOKS_STORE).getKey(key),
+      tx.objectStore(V5_METADATA_STORE).get(key) as Promise<Book | undefined>,
+    ]);
+    if (!contentKey || !metadata || getBookFingerprint(metadata) !== record.fingerprint) {
+      await tx.done;
+      return false;
+    }
+    await tx.objectStore(V14_BOOK_COVERS_STORE).put(record);
+    await tx.done;
+  } else {
+    await db.put(V14_BOOK_COVERS_STORE, record);
+  }
   notifyBookCoverCacheChanged(book.id);
+  return true;
 };
 
 export const loadBookCoverFromLocalV14 = async (

@@ -115,6 +115,39 @@ test('discovery completes Korean tag initials by title count in a horizontal row
   await expect(books).toHaveCount(1);
 });
 
+test('long tag autocomplete stays selectable past its first batch', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const tags = Array.from({ length: 90 }, (_, index) => `가나다 ${String(index).padStart(2, '0')}`);
+  await page.route('**/catalog/discovery.v1.json', route => route.fulfill({ json: {
+    schemaVersion: 1, generation: 'long-tag-initials', genres: [], tags,
+    books: tags.map((_, index) => [
+      `long-tag-${index}`, `초성 도서 ${index}`, null,
+      [['series', `https://example.test/long-tags/${index}`]], null, [index], 100 - index, null,
+    ]),
+  } }));
+
+  await page.goto('/#mypage/discover');
+  const search = page.getByRole('textbox', { name: '도서 제목, 작가 또는 태그 검색' });
+  const suggestions = page.getByRole('group', { name: '태그 자동완성' });
+  const matches = suggestions.getByRole('button', { name: /^#가나다/ });
+  await search.fill('#ㄱ');
+  await expect(matches.first()).toBeVisible();
+  const shownInitially = await matches.count();
+  expect(shownInitially).toBeLessThan(tags.length);
+
+  await suggestions.evaluate((row) => { row.scrollLeft = row.scrollWidth; });
+  await expect.poll(() => matches.count()).toBeGreaterThan(shownInitially);
+  const lastTag = tags.at(-1)!;
+  const lastMatch = suggestions.getByRole('button', { name: `#${lastTag} 1권` });
+  const more = suggestions.getByRole('button', { name: '자동완성 더 보기' });
+  await more.focus();
+  await page.keyboard.press('Enter');
+  await expect(matches).toHaveCount(tags.length);
+  await lastMatch.click();
+  await expect(page.getByRole('button', { name: `#${lastTag} 제거` })).toBeVisible();
+  await expect(page.getByRole('region', { name: '도서 목록', exact: true }).getByRole('link')).toHaveCount(1);
+});
+
 test('discovery searches by author and loads the current synopsis only in book detail', async ({ page }) => {
   const oldShard = 'a'.repeat(64);
   const newShard = 'b'.repeat(64);

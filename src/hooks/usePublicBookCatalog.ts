@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Book } from '../types';
 import {
   getPublicBookCatalogSnapshot,
@@ -10,31 +10,38 @@ import {
 
 export type PublicBookCatalogLoadState = 'loading' | 'ready' | 'error';
 
-export const usePublicBookCatalog = (books: readonly Book[]) => {
+export const usePublicBookCatalog = (books: readonly Book[], enabled: boolean) => {
   const [snapshot, setSnapshot] = useState<PublicBookCatalogSnapshot | null>(getPublicBookCatalogSnapshot);
   const [booksById, setBooksById] = useState<Map<string, PublicBookCatalogBook>>(
     () => new Map(),
   );
   const [state, setState] = useState<PublicBookCatalogLoadState>('loading');
   const [retryNonce, setRetryNonce] = useState(0);
+  const handledRetry = useRef(0);
 
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     const load = (force = false) => loadPublicBookCatalog(undefined, { force }).then((nextSnapshot) => {
       if (!active) return;
       setSnapshot(nextSnapshot);
     }).catch((error) => {
       console.error('[PublicBookCatalog] load failed:', error);
-      if (active && !getPublicBookCatalogSnapshot()) setState('error');
+      if (!active) return;
+      const cached = getPublicBookCatalogSnapshot();
+      if (cached) setSnapshot(cached);
+      else setState('error');
     });
-    void load(retryNonce > 0);
+    const force = handledRetry.current !== retryNonce;
+    handledRetry.current = retryNonce;
+    void load(force);
     const handleOnline = () => { void load(true); };
     window.addEventListener('online', handleOnline);
     return () => { active = false; window.removeEventListener('online', handleOnline); };
-  }, [retryNonce]);
+  }, [enabled, retryNonce]);
 
   useEffect(() => {
-    if (!snapshot) return;
+    if (!enabled || !snapshot) return;
     let active = true;
     void joinBooksToPublicCatalog(books, snapshot).then((joined) => {
       if (!active) return;
@@ -45,7 +52,7 @@ export const usePublicBookCatalog = (books: readonly Book[]) => {
       if (active) setState('error');
     });
     return () => { active = false; };
-  }, [books, retryNonce, snapshot]);
+  }, [books, enabled, retryNonce, snapshot]);
 
   return {
     snapshot,

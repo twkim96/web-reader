@@ -11,9 +11,7 @@ import type { OwnerKey } from './ownerIdentity.ts';
 import {
   BOOK_COVER_MAX_SOURCE_BYTES,
   getBookCoverTargetSize,
-  supportsCachedBookCover,
   supportsEmbeddedBookCover,
-  supportsMetadataBookCover,
 } from './bookCoverPolicy.ts';
 
 export {
@@ -88,12 +86,12 @@ const normalizeAndSaveBookCover = async (
   book: Book,
   source: Blob,
   signal?: AbortSignal,
+  requireLocalBook = false,
 ) => {
   const normalized = await normalizeBookCover(source, signal);
   if (!normalized) return false;
   throwIfAborted(signal);
-  await saveBookCoverToLocalV14(ownerKey, book, normalized);
-  return true;
+  return await saveBookCoverToLocalV14(ownerKey, book, normalized, requireLocalBook);
 };
 
 export const cacheBookCoverSourceIfMissing = async (
@@ -104,7 +102,7 @@ export const cacheBookCoverSourceIfMissing = async (
 ) => {
   if (!supportsEmbeddedBookCover(book)) return false;
   if (await loadBookCoverFromLocalV14(ownerKey, book)) return true;
-  return await normalizeAndSaveBookCover(ownerKey, book, source, signal);
+  return await normalizeAndSaveBookCover(ownerKey, book, source, signal, true);
 };
 
 const saveOpenedBookCover = async (
@@ -112,13 +110,14 @@ const saveOpenedBookCover = async (
   book: Book,
   view: FoliateViewElement,
   signal?: AbortSignal,
+  requireLocalBook = false,
 ) => {
   if (!supportsEmbeddedBookCover(book)) return false;
   if (await loadBookCoverFromLocalV14(ownerKey, book)) return true;
   throwIfAborted(signal);
   const source = await view.book?.getCover?.();
   if (!source) return false;
-  return await normalizeAndSaveBookCover(ownerKey, book, source, signal);
+  return await normalizeAndSaveBookCover(ownerKey, book, source, signal, requireLocalBook);
 };
 
 export const cacheOpenedBookCoverIfMissing = saveOpenedBookCover;
@@ -141,7 +140,7 @@ export const cacheImportedBookCoverIfMissing = async (
   }
   try {
     await view.open(source);
-    return await saveOpenedBookCover(ownerKey, book, view, signal);
+    return await saveOpenedBookCover(ownerKey, book, view, signal, true);
   } finally {
     try {
       view.close?.();

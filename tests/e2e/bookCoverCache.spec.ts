@@ -100,6 +100,8 @@ test('caches a PDF cover only at import and falls back after that cache is remov
       document.documentElement.dataset.pdfCompatMainMissing = String(mainMissing);
     });
   });
+  let releasePdfWorker!: () => void;
+  const pdfWorkerGate = new Promise<void>((resolve) => { releasePdfWorker = resolve; });
   const workerProbes: string[] = [];
   const pdfWorkers: string[] = [];
   page.on('worker', (worker) => {
@@ -118,6 +120,7 @@ test('caches a PDF cover only at import and falls back after that cache is remov
       return;
     }
     entryUrl.searchParams.set('compat-test-original', '1');
+    await pdfWorkerGate;
     await route.fulfill({
       contentType: 'text/javascript',
       body: `
@@ -141,6 +144,14 @@ test('caches a PDF cover only at import and falls back after that cache is remov
     buffer: createPdf(),
   });
   await page.getByRole('button', { name: '추가', exact: true }).click();
+
+  const importedCard = page.locator('[data-shelf-book-id]').filter({ hasText: 'cover-cache-proof' });
+  try {
+    await expect(importedCard).toBeVisible();
+    await expect(importedCard.locator('[data-shelf-book-cover="true"]')).toHaveCount(0);
+  } finally {
+    releasePdfWorker();
+  }
 
   let bookId: string | null = null;
   await expect.poll(async () => {
