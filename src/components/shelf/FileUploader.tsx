@@ -24,10 +24,6 @@ import {
 } from '../../lib/bookFormats';
 import { runSequentialBatch } from '../../lib/sequentialBatch';
 import { createLocalBookId } from '../../lib/localBookIdentity';
-import {
-  cacheBookCoverSourceIfMissing,
-  cacheImportedBookCoverIfMissing,
-} from '../../lib/bookCover';
 
 interface FileUploaderProps {
   googleToken: string | null;
@@ -282,24 +278,27 @@ export const FileUploader = forwardRef<FileUploaderHandle, FileUploaderProps>(({
     }
 
     if (savedLocally || driveBook) onBookImported?.(book, savedLocally);
-    if (savedLocally && (sourceFormat === 'epub' || sourceFormat === 'pdf')) {
-      await queueImportedCover(signal, () => cacheImportedBookCoverIfMissing(
-        DEVICE_CONTENT_OWNER_KEY, book, file, signal,
-      ));
-    }
-    if (savedLocally && (sourceFormat === 'zip' || sourceFormat === 'cbz')) {
+    if (savedLocally) {
       await queueImportedCover(signal, async () => {
-        const { prepareZipImageBook } = await import('../../lib/archiveImages');
-        const { book: archive } = await prepareZipImageBook(file, file.name, archiveImageIndex, signal);
-        try {
-          const coverSource = await archive.getCover?.();
-          if (!coverSource) return false;
-          return await cacheBookCoverSourceIfMissing(
-            DEVICE_CONTENT_OWNER_KEY, book, coverSource, signal,
-          );
-        } finally {
-          archive.destroy?.();
+        let readEmbeddedCover: (() => Promise<Blob | null | undefined>) | undefined;
+        if (sourceFormat === 'epub' || sourceFormat === 'pdf') {
+          readEmbeddedCover = async () => {
+            const { readImportedBookCover } = await import('../../lib/bookCover');
+            return readImportedBookCover(file, signal);
+          };
+        } else if (sourceFormat === 'zip' || sourceFormat === 'cbz') {
+          readEmbeddedCover = async () => {
+            const { prepareZipImageBook } = await import('../../lib/archiveImages');
+            const { book: archive } = await prepareZipImageBook(file, file.name, archiveImageIndex, signal);
+            try {
+              return await archive.getCover?.();
+            } finally {
+              archive.destroy?.();
+            }
+          };
         }
+        const { cacheBookCoverIfMissing } = await import('../../lib/metadataBookCover');
+        return cacheBookCoverIfMissing(DEVICE_CONTENT_OWNER_KEY, book, { readEmbeddedCover, signal, requireLocalBook: true });
       });
     }
     return { refresh: Boolean(driveBook), stop: stopBatch };

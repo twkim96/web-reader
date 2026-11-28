@@ -5,51 +5,58 @@ import {
   loadBookCoverFromLocalV14,
   saveBookCoverToLocalV14,
 } from './bookCoverCache';
-import {
-  cacheOpenedBookCoverIfMissing,
-  normalizeBookCover,
-} from './bookCover';
-import {
-  supportsEmbeddedBookCover,
-  supportsMetadataBookCover,
-} from './bookCoverPolicy';
+import { normalizeBookCover } from './bookCover';
+import { supportsCachedBookCover } from './bookCoverPolicy';
+import { getBookFingerprint } from './bookFingerprint';
 import { loadPublicBookMetadata } from './publicBookMetadata';
 import { getPublicBookCoverCandidates } from './publicBookMetadataSchema';
 import type { OwnerKey } from './ownerIdentity';
 import { fetchCoverSource } from './bookCoverSource';
 
-const abortError = () => new DOMException('Metadata cover fetch aborted', 'AbortError');
-
-const throwIfAborted = (signal?: AbortSignal) => {
-  if (signal?.aborted) throw abortError();
+type BookCoverOptions = {
+  readEmbeddedCover?: () => Promise<Blob | null | undefined>;
+  signal?: AbortSignal;
+  requireLocalBook?: boolean;
 };
 
-export const cacheMetadataBookCoverIfMissing = async (
+const pendingCovers = new Map<string, { promise: Promise<boolean>; signal?: AbortSignal }>();
+
+const fillBookCover = async (
   ownerKey: OwnerKey,
   book: Book,
-  signal?: AbortSignal,
+  { readEmbeddedCover, signal, requireLocalBook = false }: BookCoverOptions,
 ) => {
-  if (!supportsMetadataBookCover(book)) return false;
   if (await loadBookCoverFromLocalV14(ownerKey, book)) return true;
-  throwIfAborted(signal);
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return false;
+  signal?.throwIfAborted();
 
-  const metadata = await loadPublicBookMetadata(book.name);
-  const candidates = getPublicBookCoverCandidates(metadata);
-  if (candidates.length === 0) return false;
+  const saveSource = async (source: Blob) => {
+    const normalized = await normalizeBookCover(source, signal);
+    if (!normalized) return;
+    signal?.throwIfAborted();
+    return await saveBookCoverToLocalV14(ownerKey, book, normalized, { requireLocalBook, preserveExisting: true });
+  };
 
-  let lastError: unknown = null;
-  for (const candidate of candidates) {
+  if (readEmbeddedCover) {
     try {
-      const source = await fetchCoverSource(candidate.coverUrl, signal);
-      const normalized = await normalizeBookCover(source, signal);
-      if (!normalized) continue;
-      throwIfAborted(signal);
-      if (await loadBookCoverFromLocalV14(ownerKey, book)) return true;
-      await saveBookCoverToLocalV14(ownerKey, book, normalized);
-      return true;
+      const source = await readEmbeddedCover();
+      const saved = source ? await saveSource(source) : undefined;
+      if (saved !== undefined) return saved;
     } catch (error) {
-      if (signal?.aborted) throw abortError();
+      signal?.throwIfAborted();
+      console.warn('[BookCover] Embedded cover unavailable, trying metadata cover:', error);
+    }
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+  const metadata = await loadPublicBookMetadata(book.name);
+  signal?.throwIfAborted();
+  let lastError: unknown;
+  for (const { coverUrl } of getPublicBookCoverCandidates(metadata)) {
+    try {
+      const saved = await saveSource(await fetchCoverSource(coverUrl, signal));
+      if (saved !== undefined) return saved;
+    } catch (error) {
+      signal?.throwIfAborted();
       lastError = error;
     }
   }
@@ -57,25 +64,27 @@ export const cacheMetadataBookCoverIfMissing = async (
   return false;
 };
 
-export const cacheReaderBookCoverIfMissing = async (
+export const cacheBookCoverIfMissing = async (
   ownerKey: OwnerKey,
   book: Book,
-  openedView?: Parameters<typeof cacheOpenedBookCoverIfMissing>[2],
-  signal?: AbortSignal,
-) => {
-  if (await loadBookCoverFromLocalV14(ownerKey, book)) return true;
-  throwIfAborted(signal);
-
-  if (openedView && supportsEmbeddedBookCover(book)) {
+  options: BookCoverOptions = {},
+): Promise<boolean> => {
+  if (!supportsCachedBookCover(book)) return false;
+  options.signal?.throwIfAborted();
+  const key = JSON.stringify([ownerKey, book.id, getBookFingerprint(book)]);
+  const pending = pendingCovers.get(key);
+  if (pending) {
     try {
-      if (await cacheOpenedBookCoverIfMissing(ownerKey, book, openedView, signal)) {
-        return true;
-      }
+      const result = await pending.promise;
+      if (result || !pending.signal?.aborted) return result;
     } catch (error) {
-      if (signal?.aborted) throw abortError();
-      console.warn('[Reader] Embedded cover unavailable, trying metadata cover:', error);
+      if (!pending.signal?.aborted) throw error;
     }
+    // A reader can still fill the cover after an overlapping import was cancelled.
+    return cacheBookCoverIfMissing(ownerKey, book, options);
   }
 
-  return cacheMetadataBookCoverIfMissing(ownerKey, book, signal);
+  const promise = fillBookCover(ownerKey, book, options).finally(() => pendingCovers.delete(key));
+  pendingCovers.set(key, { promise, signal: options.signal });
+  return promise;
 };

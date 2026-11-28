@@ -35,7 +35,7 @@ import {
   supportsCachedBookCover,
   supportsEmbeddedBookCover,
 } from '../../lib/bookCover';
-import { cacheReaderBookCoverIfMissing } from '../../lib/metadataBookCover';
+import { cacheBookCoverIfMissing } from '../../lib/metadataBookCover';
 
 type ReaderThemeColors = {
   bg: string;
@@ -436,11 +436,15 @@ export const useReaderBookSource = ({
                 if (!ownerRuntime.isCurrent(owner)) return;
                 const coverController = new AbortController();
                 const unregisterCover = ownerRuntime.registerDisposer(() => coverController.abort());
-                void cacheReaderBookCoverIfMissing(
+                const coverBook = openedCoverView?.book;
+                void cacheBookCoverIfMissing(
                   DEVICE_CONTENT_OWNER_KEY,
                   targetBook,
-                  openedCoverView ?? undefined,
-                  coverController.signal,
+                  {
+                    readEmbeddedCover: coverBook?.getCover?.bind(coverBook),
+                    signal: coverController.signal,
+                    requireLocalBook: targetBook.source === 'local',
+                  },
                 ).catch((error) => {
                   if (!isAbortError(error)) {
                     console.warn('[Reader] Failed to cache book cover:', error);

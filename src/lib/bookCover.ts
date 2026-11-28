@@ -1,17 +1,10 @@
 'use client';
 
-import type { Book } from '../types.ts';
 import type { FoliateViewElement } from '../hooks/foliate/types.ts';
-import {
-  loadBookCoverFromLocalV14,
-  saveBookCoverToLocalV14,
-} from './bookCoverCache.ts';
 import { waitForFoliateViewRegistration } from './foliateRuntimeLoader.ts';
-import type { OwnerKey } from './ownerIdentity.ts';
 import {
   BOOK_COVER_MAX_SOURCE_BYTES,
   getBookCoverTargetSize,
-  supportsEmbeddedBookCover,
 } from './bookCoverPolicy.ts';
 
 export {
@@ -81,55 +74,10 @@ export const normalizeBookCover = async (source: Blob, signal?: AbortSignal) => 
   return await canvasToBlob(canvas, 'image/jpeg', 0.86);
 };
 
-const normalizeAndSaveBookCover = async (
-  ownerKey: OwnerKey,
-  book: Book,
-  source: Blob,
-  signal?: AbortSignal,
-  requireLocalBook = false,
-) => {
-  const normalized = await normalizeBookCover(source, signal);
-  if (!normalized) return false;
-  throwIfAborted(signal);
-  return await saveBookCoverToLocalV14(ownerKey, book, normalized, requireLocalBook);
-};
-
-export const cacheBookCoverSourceIfMissing = async (
-  ownerKey: OwnerKey,
-  book: Book,
-  source: Blob,
-  signal?: AbortSignal,
-) => {
-  if (!supportsEmbeddedBookCover(book)) return false;
-  if (await loadBookCoverFromLocalV14(ownerKey, book)) return true;
-  return await normalizeAndSaveBookCover(ownerKey, book, source, signal, true);
-};
-
-const saveOpenedBookCover = async (
-  ownerKey: OwnerKey,
-  book: Book,
-  view: FoliateViewElement,
-  signal?: AbortSignal,
-  requireLocalBook = false,
-) => {
-  if (!supportsEmbeddedBookCover(book)) return false;
-  if (await loadBookCoverFromLocalV14(ownerKey, book)) return true;
-  throwIfAborted(signal);
-  const source = await view.book?.getCover?.();
-  if (!source) return false;
-  return await normalizeAndSaveBookCover(ownerKey, book, source, signal, requireLocalBook);
-};
-
-export const cacheOpenedBookCoverIfMissing = saveOpenedBookCover;
-
-export const cacheImportedBookCoverIfMissing = async (
-  ownerKey: OwnerKey,
-  book: Book,
+export const readImportedBookCover = async (
   source: File,
   signal?: AbortSignal,
 ) => {
-  if (!supportsEmbeddedBookCover(book)) return false;
-  if (await loadBookCoverFromLocalV14(ownerKey, book)) return true;
   throwIfAborted(signal);
   await waitForFoliateViewRegistration();
   throwIfAborted(signal);
@@ -140,7 +88,8 @@ export const cacheImportedBookCoverIfMissing = async (
   }
   try {
     await view.open(source);
-    return await saveOpenedBookCover(ownerKey, book, view, signal, true);
+    throwIfAborted(signal);
+    return await view.book?.getCover?.();
   } finally {
     try {
       view.close?.();

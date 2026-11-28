@@ -2,6 +2,7 @@ import 'fake-indexeddb/auto';
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import { openDB } from 'idb';
 
 const {
@@ -716,13 +717,66 @@ test('a deferred import cover requires the saved book and its current fingerprin
 
   await saveBookToLocalV5(owner, original, new Blob(['original']));
   await saveBookToLocalV5(owner, replacement, new Blob(['replacement']));
-  assert.equal(await saveBookCoverToLocalV14(owner, original, cover, true), false);
+  assert.equal(await saveBookCoverToLocalV14(owner, original, cover, { requireLocalBook: true }), false);
   assert.equal(await loadBookCoverFromLocalV14(owner, original), null);
-  assert.equal(await saveBookCoverToLocalV14(owner, replacement, cover, true), true);
+  assert.equal(await saveBookCoverToLocalV14(owner, replacement, cover, { requireLocalBook: true }), true);
+  await saveBookCoverToLocalV14(owner, replacement, new Blob(['later']), { preserveExisting: true });
+  assert.equal(await (await loadBookCoverFromLocalV14(owner, replacement)).text(), 'cached-cover');
 
   await removeBookFromLocalV5(owner, replacement.id);
-  assert.equal(await saveBookCoverToLocalV14(owner, replacement, cover, true), false);
+  assert.equal(await saveBookCoverToLocalV14(owner, replacement, cover, { requireLocalBook: true }), false);
   assert.equal(await loadBookCoverFromLocalV14(owner, replacement), null);
+});
+
+test('an imported TXT matches a published cover and an overlapping open shares the result', async (t) => {
+  const owner = DEVICE_CONTENT_OWNER_KEY;
+  const book = { ...makeBook('txt-cover', '표지 확인.txt'), sourceFormat: 'txt' };
+  await saveBookToLocalV5(owner, { ...book, name: '표지 확인.epub' }, new Blob(['converted'], { type: 'application/epub+zip' }));
+
+  let coverRequested;
+  const requested = new Promise((resolve) => { coverRequested = resolve; });
+  let releaseCover;
+  const coverGate = new Promise((resolve) => { releaseCover = resolve; });
+  const coverFetch = t.mock.method(globalThis, 'fetch', async (url, request) => {
+    assert.equal(url, '/api/book-cover/source');
+    assert.equal(JSON.parse(request.body).url, 'https://cover.example.test/fixture.webp');
+    coverRequested();
+    await coverGate;
+    return new Response('matched-cover', { headers: { 'Content-Type': 'image/webp' } });
+  });
+  const require = createRequire(import.meta.url);
+  const normalizePath = require.resolve('../src/lib/bookCover.ts');
+  const metadataPath = require.resolve('../src/lib/publicBookMetadata.ts');
+  const lifecyclePath = require.resolve('../src/lib/metadataBookCover.ts');
+  const modulePaths = [normalizePath, metadataPath, lifecyclePath];
+  const previous = modulePaths.map((path) => require.cache[path]);
+  require.cache[normalizePath] = { exports: { normalizeBookCover: async (source) => source } };
+  const lookup = t.mock.fn(async (name) => {
+    assert.equal(name, '표지 확인.txt');
+    return { platforms: [{ platform: 'series', coverUrl: 'https://cover.example.test/fixture.webp' }] };
+  });
+  require.cache[metadataPath] = { exports: { loadPublicBookMetadata: lookup } };
+  delete require.cache[lifecyclePath];
+  try {
+    const { cacheBookCoverIfMissing } = require(lifecyclePath);
+    const imported = cacheBookCoverIfMissing(owner, book, { requireLocalBook: true });
+    await Promise.race([requested, imported]);
+    assert.equal(coverFetch.mock.callCount(), 1);
+    const cachedBook = { ...book, name: '표지 확인.epub' };
+    const opened = cacheBookCoverIfMissing(owner, cachedBook);
+    releaseCover();
+    assert.deepEqual(await Promise.all([imported, opened]), [true, true]);
+    assert.equal(await (await loadBookCoverFromLocalV14(owner, cachedBook)).text(), 'matched-cover');
+    assert.equal(await cacheBookCoverIfMissing(owner, cachedBook), true);
+    assert.equal(coverFetch.mock.callCount(), 1);
+    assert.equal(lookup.mock.callCount(), 1);
+  } finally {
+    releaseCover();
+    modulePaths.forEach((path, index) => {
+      if (previous[index]) require.cache[path] = previous[index];
+      else delete require.cache[path];
+    });
+  }
 });
 
 test('atomically removes one device book and only the current owner annotations', async () => {

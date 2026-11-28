@@ -14,6 +14,12 @@ export type StoredBookCoverV14 = {
   cachedAt: number;
 };
 
+const getCurrentCover = (stored: StoredBookCoverV14 | undefined, fingerprint: string | null) => (
+  stored?.fingerprint === fingerprint && stored.image instanceof Blob && stored.image.size > 0
+    ? stored.image
+    : null
+);
+
 export const notifyBookCoverCacheChanged = (bookId: string) => {
   if (typeof window === 'undefined') return;
   window.dispatchEvent(new CustomEvent(BOOK_COVER_CACHE_CHANGE_EVENT, {
@@ -25,7 +31,7 @@ export const saveBookCoverToLocalV14 = async (
   ownerKey: OwnerKey,
   book: Book,
   image: Blob,
-  requireLocalBook = false,
+  { requireLocalBook = false, preserveExisting = false } = {},
 ) => {
   const db = await initDB();
   const record = {
@@ -35,9 +41,12 @@ export const saveBookCoverToLocalV14 = async (
     image,
     cachedAt: Date.now(),
   } satisfies StoredBookCoverV14;
+  const tx = db.transaction(requireLocalBook
+    ? [V5_BOOKS_STORE, V5_METADATA_STORE, V14_BOOK_COVERS_STORE]
+    : [V14_BOOK_COVERS_STORE], 'readwrite');
+  const key = [ownerKey, book.id];
+  const covers = tx.objectStore(V14_BOOK_COVERS_STORE);
   if (requireLocalBook) {
-    const tx = db.transaction([V5_BOOKS_STORE, V5_METADATA_STORE, V14_BOOK_COVERS_STORE], 'readwrite');
-    const key = [ownerKey, book.id];
     const [contentKey, metadata] = await Promise.all([
       tx.objectStore(V5_BOOKS_STORE).getKey(key),
       tx.objectStore(V5_METADATA_STORE).get(key) as Promise<Book | undefined>,
@@ -46,11 +55,13 @@ export const saveBookCoverToLocalV14 = async (
       await tx.done;
       return false;
     }
-    await tx.objectStore(V14_BOOK_COVERS_STORE).put(record);
-    await tx.done;
-  } else {
-    await db.put(V14_BOOK_COVERS_STORE, record);
   }
+  if (preserveExisting && getCurrentCover(await covers.get(key), record.fingerprint)) {
+    await tx.done;
+    return true;
+  }
+  await covers.put(record);
+  await tx.done;
   notifyBookCoverCacheChanged(book.id);
   return true;
 };
@@ -64,13 +75,7 @@ export const loadBookCoverFromLocalV14 = async (
     V14_BOOK_COVERS_STORE,
     [ownerKey, book.id],
   ) as StoredBookCoverV14 | undefined;
-  if (
-    !stored
-    || !(stored.image instanceof Blob)
-    || stored.image.size === 0
-    || stored.fingerprint !== getBookFingerprint(book)
-  ) return null;
-  return stored.image;
+  return getCurrentCover(stored, getBookFingerprint(book));
 };
 
 export const removeBookCoverFromLocalV14 = async (
